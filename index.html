@@ -76,7 +76,7 @@ main{padding-block:8px 48px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer;display:flex;flex-direction:column;text-align:left;padding:0}
 .card:hover{border-color:var(--muted)}
 .thumb{position:relative;aspect-ratio:4/5;background:var(--sunk);overflow:hidden;max-width:100%}
-.thumb img,.thumb svg{position:absolute;inset:0;width:100%;height:100%}
+.thumb img,.thumb svg,.thumb canvas{position:absolute;inset:0;width:100%;height:100%}
 .thumb img{object-fit:contain}
 .thumb .tag{position:absolute;top:8px;left:8px;background:var(--tape);color:var(--tape-ink);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 7px;border-radius:4px}
 .card .meta{padding:10px 12px 12px;display:grid;gap:4px;min-width:0}
@@ -664,13 +664,31 @@ const ICON_IMG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 function cardHTML(it) {
   const p = it.photos[0];
   const nums = it.measures.slice(0, 3).map(m => `<span>${esc(m.label)} <b>${esc(fmt(bestValue(it, m).cm, it.unit))}</b></span>`).join("");
-  const svgLines = p ? it.measures.map((m, i) => { const l = p.lines[m.id]; return l ? `<line x1="${l.a[0] * p.w}" y1="${l.a[1] * p.h}" x2="${l.b[0] * p.w}" y2="${l.b[1] * p.h}" stroke="${COLORS[i % COLORS.length]}" stroke-width="3" vector-effect="non-scaling-stroke" stroke-linecap="round"/>` : ""; }).join("") : "";
   const count = it.photos.length;
   return `<button class="card" data-open="${esc(it.id)}">
-    <div class="thumb">${p ? `<img src="${esc(photoURL(p))}" alt="" loading="lazy"><svg viewBox="0 0 ${p.w} ${p.h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${svgLines}</svg>` : ""}
+    <div class="thumb">${p ? `<img src="${esc(photoURL(p))}" alt="" loading="lazy"><canvas data-thumb="${esc(it.id)}" aria-hidden="true"></canvas>` : ""}
       ${it.example ? '<span class="tag">Example</span>' : ""}${count > 1 ? `<span class="tag" style="left:auto;right:8px;background:var(--ink);color:var(--bg)">${count} photos</span>` : ""}</div>
     <div class="meta"><span class="kind">${esc(TEMPLATES[it.type]?.name || "")}</span><span class="name">${esc(it.name)}</span><div class="nums">${nums}</div></div>
   </button>`;
+}
+async function drawThumbs() {
+  for (const cv of document.querySelectorAll("canvas[data-thumb]")) {
+    const id = cv.dataset.thumb, it = id === "example" ? S.example : S.items.find(x => x.id === id);
+    const ph = it && it.photos[0]; if (!ph) continue;
+    let img; try { img = await loadImg(ph); } catch { continue; }
+    if (!cv.isConnected) continue;
+    const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    if (!r.width) continue;
+    cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+    const f = Math.min(cv.width / ph.w, cv.height / ph.h), dw = ph.w * f, dh = ph.h * f, ox = (cv.width - dw) / 2, oy = (cv.height - dh) / 2;
+    const g = cv.getContext("2d");
+    g.drawImage(img, ox, oy, dw, dh);
+    g.save(); g.translate(ox, oy);
+    drawRedactions(g, img, ph, dw, dh, dpr);
+    drawOverlay(g, it, ph, dw, dh, dpr * Math.min(1, r.width / 300), { handles: false });
+    g.restore();
+    const im = cv.previousElementSibling; if (im && im.tagName === "IMG") im.style.visibility = "hidden";
+  }
 }
 function renderList() {
   const items = S.items;
@@ -699,6 +717,7 @@ function renderList() {
         <p class="note" style="margin:0">On this device only, in this browser. Nothing is uploaded. On iPhone, add Dimsum to your Home Screen (Share, then Add to Home Screen) and use it from there: Safari deletes a website's saved data after 7 days without a visit, but Home Screen apps keep theirs.</p>
       </section>
     </div>`;
+  drawThumbs();
 }
 
 function renderEditor() {
