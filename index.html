@@ -235,7 +235,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.1";
+const APP_VERSION = "2026-11-08.2";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -779,7 +779,7 @@ function renderSide() {
         <input class="mnum" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" id="act-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${est ? "≈ " + inUnit(est, u) : ""}" aria-label="${esc(m.label)} in ${u}"><span class="munit">${u}</span></div>
       ${sel ? `<div class="mbody">
         ${how ? `<span class="how">${esc(how)}</span>` : ""}
-        <label>Name <input type="text" id="lbl-${m.id}" data-lbl="${m.id}" value="${esc(m.label)}"></label>
+        ${m.key === "custom" ? `<label>Name <input type="text" id="lbl-${m.id}" data-lbl="${m.id}" value="${esc(m.label)}"></label>` : ""}
         <div class="row2"><button class="btn ghost danger" data-del="${m.id}">Remove from garment</button></div>
       </div>` : ""}
     </div>`;
@@ -829,7 +829,7 @@ function renderSide() {
       ${SIZES[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Size</span><div class="seg" role="group" aria-label="Size">${SIZES[it.type].map(f => `<button data-size="${f}" aria-pressed="${it.size === f}">${f}</button>`).join("")}</div></div>` : ""}
       ${FITS[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Fit</span><div class="seg" role="group" aria-label="Fit">${FITS[it.type].map(f => `<button data-fit="${f}" aria-pressed="${it.fit === f}">${f}</button>`).join("")}</div></div>` : ""}
       <div class="chips">${tpl.map(t => `<button data-addm="${t.key}">+ ${esc(t.label)}</button>`).join("")}<button data-addm="">+ Custom</button></div>
-      <div class="note">Values belong to the garment; the tick shows each line on this photo. Tap a name to see where to measure.</div>
+      <div class="note">Values belong to the garment; the tick shows each line on this photo. Tap a name to see where to measure it.</div>
     </section>
     <section class="panel">
       <h2>Listing text</h2>
