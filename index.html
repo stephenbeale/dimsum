@@ -152,6 +152,8 @@ label.check input{width:18px;height:18px}
 .emptystage{display:grid;gap:12px;justify-items:center;padding:40px 16px;text-align:center;color:var(--muted)}
 .offer{border-left:4px solid var(--tape);padding:8px 10px;background:var(--sunk);border-radius:6px;font-size:13px}
 #status{margin:0 0 12px}
+#f-title{width:100%}
+.descprev{margin:0;white-space:pre-wrap;font-family:var(--body);font-size:14px;line-height:1.5;background:var(--sunk);border:1px dashed var(--line);border-radius:8px;padding:8px 10px;overflow-wrap:anywhere}
 .lbl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:-4px}
 .guess{border:1px solid var(--line);border-left:4px solid var(--tape);border-radius:8px;padding:10px 12px;display:grid;gap:8px;background:var(--sunk);font-size:14px;min-width:0}
 .guess .gh{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
@@ -242,7 +244,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.5";
+const APP_VERSION = "2026-11-08.7";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -412,7 +414,7 @@ function normalize(raw) {
 }
 function toDoc(it) {
   return {
-    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
+    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", addMeasures: it.addMeasures !== false, createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
     photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "" })),
   };
@@ -620,16 +622,28 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
       ctx.fillStyle = "rgba(255,255,255,.95)"; ctx.fill(); ctx.lineWidth = 2.5 * k; ctx.strokeStyle = L.color; ctx.stroke();
       ctx.beginPath(); ctx.arc(x, y, 1.6 * k, 0, Math.PI * 2); ctx.fillStyle = "#111"; ctx.fill();
     }
-    pills.push({ L, mx: (ax + bx) / 2, my: (ay + by) / 2, horiz: Math.abs(dx) > Math.abs(dy), sel });
+    pills.push({ L, ax, ay, bx, by, horiz: Math.abs(dx) > Math.abs(dy), sel });
   }
   ctx.font = `600 ${12.5 * k}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textBaseline = "middle";
+  // Each label sits at a point along its line (l.t, 0 to 1). Labels nobody has moved slide aside to avoid overlapping.
+  const placed = [], overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   for (const p of pills) {
     const tw = ctx.measureText(p.L.text).width, ph2 = 22 * k, pw = tw + 14 * k;
-    let x = p.mx - pw / 2, y = p.my - ph2 / 2 - (p.horiz ? ph2 * .5 + 5 * k : 0);
-    x = clamp(x, 2 * k, W - pw - 2 * k); y = clamp(y, 2 * k, H - ph2 - 2 * k);
-    roundRect(ctx, x, y, pw, ph2, 5 * k); ctx.fillStyle = p.L.color; ctx.fill();
+    const at = t => {
+      const mx = p.ax + (p.bx - p.ax) * t, my = p.ay + (p.by - p.ay) * t;
+      const x = clamp(mx - pw / 2, 2 * k, W - pw - 2 * k), y = clamp(my - ph2 / 2 - (p.horiz ? ph2 * .5 + 5 * k : 0), 2 * k, H - ph2 - 2 * k);
+      return { x, y, w: pw, h: ph2 };
+    };
+    const fixed = typeof p.L.l.t === "number";
+    let r = at(fixed ? p.L.l.t : 0.5);
+    if (!fixed && placed.some(q => overlaps(r, q))) {
+      for (const dt of [0.18, -0.18, 0.3, -0.3, 0.4, -0.4]) { const c = at(0.5 + dt); if (!placed.some(q => overlaps(c, q))) { r = c; break; } }
+    }
+    placed.push(r);
+    roundRect(ctx, r.x, r.y, r.w, r.h, 5 * k); ctx.fillStyle = p.L.color; ctx.fill();
     if (p.sel) { ctx.lineWidth = 2 * k; ctx.strokeStyle = "#111"; ctx.stroke(); }
-    ctx.fillStyle = "#111"; ctx.fillText(p.L.text, x + 7 * k, y + ph2 / 2 + .5 * k);
+    ctx.fillStyle = "#111"; ctx.fillText(p.L.text, r.x + 7 * k, r.y + ph2 / 2 + .5 * k);
+    if (opt.pillsOut) opt.pillsOut.push({ id: p.L.id, l: p.L.l, ...r });
   }
 }
 
@@ -769,7 +783,7 @@ function renderEditor() {
           <button class="ptab add" data-pick="lib" data-target="add" aria-label="Choose more photos">${ICON_IMG}Choose</button>`}
         </div>
         ${ph ? `<div class="stage" id="stage"><canvas id="cv" aria-label="${esc(ROLES[ph.role])} photo with measurement lines"></canvas></div>
-        <p class="hint">Drag a dot to move one end, or the middle of a line to move all of it. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
+        <p class="hint">Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
         : `<div class="stage"><div class="emptystage"><strong>No photos yet</strong><span>Add the front first, then the back and label.</span>
             <div class="row2" style="justify-content:center"><button class="btn primary" data-pick="cam" data-target="add">${ICON_CAM}Take photo</button><button class="btn" data-pick="lib" data-target="add">${ICON_IMG}Choose photos</button></div></div></div>`}
       </div>
@@ -819,10 +833,8 @@ function renderSide() {
       <div class="row2">
         <a class="btn" href="${appLink("vinted")}" target="_blank" rel="noopener" data-golist="vinted">Open Vinted</a>
         <a class="btn" href="${appLink("ebay")}" target="_blank" rel="noopener" data-golist="ebay">Open eBay</a>
-        <button class="btn ghost" data-act="copytitle">Copy title</button>
-        <button class="btn ghost" data-act="copy">Copy description</button>
       </div>
-      <div class="note">Opening Vinted or eBay copies the description and measurements first, ready to paste. Then add the photos you saved.</div>
+      <div class="note">Opening Vinted or eBay copies the description and measurements first, ready to paste. Then add the photos you saved. To copy the title or description separately, use the buttons under Listing text.</div>
     </section>`;
   $("#side").innerHTML = `
     ${ph ? `<section class="panel">
@@ -858,8 +870,14 @@ function renderSide() {
     <section class="panel">
       <h2>Listing text</h2>
       ${guessHTML(it)}
+      <label class="lbl" for="f-title">Title</label>
+      <input type="text" id="f-title" value="${esc(it.name === "Untitled garment" ? "" : it.name)}" placeholder="Brand, item, colour, size" maxlength="120">
+      <div class="row2"><button class="btn ghost" data-act="copytitle">Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/80 for eBay</span></div>
       <label class="lbl" for="f-desc">Description</label>
-      <textarea id="f-desc" placeholder="What buyers read: brand, size, colour, fabric, condition…">${esc(it.description || "")}</textarea>
+      <textarea id="f-desc" placeholder="What buyers read: brand, colour, fabric, condition…">${esc(it.description || "")}</textarea>
+      <label class="check"><input type="checkbox" id="f-addm" ${it.addMeasures === false ? "" : "checked"}> Add the measurements to the end of the description</label>
+      <pre class="descprev" id="desc-preview" ${it.addMeasures === false ? "hidden" : ""}></pre>
+      <div class="row2"><button class="btn ghost" data-act="copy">Copy description</button></div>
       <label class="lbl" for="f-notes">Private notes</label>
       <textarea id="f-notes" placeholder="Just for you: where you bought it, price paid…">${esc(it.notes || "")}</textarea>
       ${it.example ? "" : `<div class="row2"><button class="btn ghost danger" data-act="delete" id="btn-del">Delete garment</button></div>`}
@@ -875,8 +893,10 @@ function renderSide() {
         </div>
       </div>
     </details>` : ""}`;
+  renderDescPreview();
 }
 function updateValues() {
+  renderDescPreview();
   const it = S.cur, ph = curPhoto(), sc = scaleOf(ph), u = it.unit === "in" ? "in" : "cm";
   for (const m of it.measures) {
     const el = document.getElementById("act-" + m.id); if (!el) continue;
@@ -914,6 +934,10 @@ function setupCanvas() {
     for (const r of ph.redact) {
       if (Math.hypot((r.x + r.w) * CV.w - p.x, (r.y + r.h) * CV.h - p.y) < R) return { id: "r:" + r.id, box: r, end: "resize" };
     }
+    const pad = touch ? 6 : 2;
+    for (const q of [...(CV.pills || [])].reverse()) {
+      if (p.x >= q.x - pad && p.x <= q.x + q.w + pad && p.y >= q.y - pad && p.y <= q.y + q.h + pad) return { id: q.id, l: q.l, end: "label" };
+    }
     for (const L of ls) {
       const ax = L.l.a[0] * CV.w, ay = L.l.a[1] * CV.h, bx = L.l.b[0] * CV.w, by = L.l.b[1] * CV.h;
       const dx = bx - ax, dy = by - ay, t = clamp(((p.x - ax) * dx + (p.y - ay) * dy) / (dx * dx + dy * dy || 1), 0, 1);
@@ -945,6 +969,9 @@ function setupCanvas() {
       const b = d.box, o = d.box0;
       if (d.end === "resize") { b.w = clamp(o.w + dx, .02, 1 - o.x); b.h = clamp(o.h + dy, .02, 1 - o.y); }
       else { b.x = clamp(o.x + dx, 0, 1 - o.w); b.y = clamp(o.y + dy, 0, 1 - o.h); }
+    } else if (d.end === "label") {
+      const ax = d.l.a[0] * CV.w, ay = d.l.a[1] * CV.h, ex = d.l.b[0] * CV.w - ax, ey = d.l.b[1] * CV.h - ay;
+      d.l.t = clamp(((p.x - ax) * ex + (p.y - ay) * ey) / (ex * ex + ey * ey || 1), 0.03, 0.97);
     } else if (d.end === "both") {
       const ddx = clamp(dx, -Math.min(d.a0[0], d.b0[0]), 1 - Math.max(d.a0[0], d.b0[0]));
       const ddy = clamp(dy, -Math.min(d.a0[1], d.b0[1]), 1 - Math.max(d.a0[1], d.b0[1]));
@@ -965,9 +992,10 @@ function draw() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
   ctx.drawImage(img, 0, 0, w, h);
   drawRedactions(ctx, img, ph, w, h, 1, { sel: S.sel, handles: true });
-  drawOverlay(ctx, it, ph, w, h, 1, { sel: S.sel, handles: true });
+  CV.pills = [];
+  drawOverlay(ctx, it, ph, w, h, 1, { sel: S.sel, handles: true, pillsOut: CV.pills });
   const d = CV.drag;
-  if (d && d.l && d.end !== "both") {
+  if (d && d.l && (d.end === "a" || d.end === "b")) {
     const pnt = d.l[d.end], px = pnt[0] * w, py = pnt[1] * h, R = Math.min(64, w / 5), Z = 3;
     let cx = px < w / 2 ? w - R - 10 : R + 10, cy = R + 10;
     if (Math.hypot(cx - px, cy - py) < R * 1.6) cy = h - R - 10;
@@ -1084,15 +1112,29 @@ function useGuess(what) {
 
 // ---------- tools ----------
 function summaryText(it) {
-  const m = measureText(it), d = (it.description || "").trim();
+  const m = it.addMeasures === false ? "" : measureText(it), d = (it.description || "").trim();
   return [d, m].filter(Boolean).join("\n\n");
 }
+// Both units: the one used on the photos first, the other in brackets.
+function bothUnits(cm, unit) {
+  const inch = n1(cm / 2.54) + '"', metric = n1(cm) + " cm";
+  return unit === "in" ? `${inch} (${metric})` : `${metric} (${inch})`;
+}
 function measureText(it) {
-  const rows = it.measures.map(m => ({ m, v: bestValue(it, m) })).filter(r => r.v.cm != null)
-    .map(({ m, v }) => `${m.label}: ${it.unit === "cm" ? `${n1(v.cm)} cm (${n1(v.cm / 2.54)}")` : `${n1(v.cm / 2.54)}" (${n1(v.cm)} cm)`}${v.kind === "est." ? ", approx." : ""}`);
-  if (fitOf(it)) rows.unshift(`Fit: ${fitOf(it)}`);
-  if (sizeOf(it)) rows.unshift(`Size: ${sizeOf(it)}`);
-  return rows.length ? `Measurements, laid flat:\n${rows.join("\n")}` : "";
+  const rows = [];
+  if (sizeOf(it)) rows.push(`🏷️ Size: ${sizeOf(it)}`);
+  if (fitOf(it)) rows.push(`👖 Fit: ${fitOf(it)}`);
+  for (const m of it.measures) {
+    const v = bestValue(it, m); if (v.cm == null) continue;
+    rows.push(`📏 ${m.label}: ${bothUnits(v.cm, it.unit)}${v.kind === "est." ? ", approx." : ""}`);
+  }
+  return rows.length ? `Measurements (laid flat):\n${rows.join("\n")}` : "";
+}
+function renderDescPreview() {
+  const el = $("#desc-preview"); if (!el || !S.cur) return;
+  const txt = measureText(S.cur), on = S.cur.addMeasures !== false;
+  el.hidden = !on;
+  el.textContent = txt || "Type in a measurement and it appears here.";
 }
 function copyString(txt, ok, empty) {
   if (!txt) { toast(empty); return false; }
@@ -1464,6 +1506,7 @@ app.addEventListener("change", e => {
   const t = e.target, it = S.cur; if (!it) return;
   const ph = curPhoto();
   if (t.id === "f-strip") { S.exp.strip = t.checked; saveExp(); return; }
+  if (t.id === "f-addm") { it.addMeasures = t.checked; renderDescPreview(); scheduleSave(it); return; }
   if (t.id === "f-clean") { S.exp.clean = t.checked; saveExp(); renderSide(); return; }
   if (t.dataset.on) {
     const m = it.measures.find(m => m.id === t.dataset.on);
@@ -1496,7 +1539,13 @@ app.addEventListener("focusout", e => { const t = e.target; if (S.cur && t.datas
 app.addEventListener("input", e => {
   const t = e.target, it = S.cur; if (!it) return;
   const ph = curPhoto();
-  if (t.id === "f-name") { it.name = t.value; scheduleSave(it); }
+  if (t.id === "f-name" || t.id === "f-title") {
+    it.name = t.value.trim() ? t.value : (t.id === "f-title" ? "Untitled garment" : t.value);
+    const other = $(t.id === "f-name" ? "#f-title" : "#f-name");
+    if (other) other.value = t.id === "f-name" ? (it.name === "Untitled garment" ? "" : it.name) : it.name;
+    const tc = $("#title-count"); if (tc) tc.textContent = `${(it.name === "Untitled garment" ? "" : it.name).length}/80 for eBay`;
+    scheduleSave(it);
+  }
   else if (t.id === "f-notes") { it.notes = t.value; scheduleSave(it); }
   else if (t.id === "f-desc") { it.description = t.value; scheduleSave(it); }
   else if (t.id === "f-reflen") { const v = parseFloat(t.value); ph.ref.len = v > 0 ? fromUnit(v, it.unit) : null; draw(); updateValues(); scheduleSave(it); }
