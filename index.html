@@ -235,8 +235,18 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
+const APP_VERSION = "2026-11-08.1";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
+const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
+const sizeOf = it => SIZES[it.type] && SIZES[it.type].includes(it.size) ? it.size : "";
+const tagsOf = it => [sizeOf(it) && "Size " + sizeOf(it), fitOf(it) && fitOf(it) + " fit"].filter(Boolean);
+const SIZE_WORDS = { "extra small": "XS", "small": "S", "medium": "M", "large": "L", "extra large": "XL", "xxl": "XXL", "2xl": "XXL" };
+function sizeFromText(txt) {
+  const t = String(txt || "").trim().toLowerCase(); if (!t) return "";
+  if (SIZE_WORDS[t]) return SIZE_WORDS[t];
+  const m = t.toUpperCase().match(/\b(XXL|XL|XS|S|M|L)\b/); return m ? m[1] : "";
+}
 const PRESETS = {
   card: { label: "Bank card (long edge)", len: 8.56 },
   a4l: { label: "A4 paper (long edge)", len: 29.7 },
@@ -393,7 +403,7 @@ function normalize(raw) {
 }
 function toDoc(it) {
   return {
-    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", guess: it.guess || null, fit: it.fit || "", createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
+    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
     photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "" })),
   };
@@ -569,9 +579,9 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
     const v = valueOf(m, ph);
     lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? m.label : m.label + ": " + fmt(v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
   });
-  if (fitOf(it) && ph.role !== "label") {
+  if (tagsOf(it).length && ph.role !== "label") {
     ctx.save(); ctx.font = `700 ${12.5 * k}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textBaseline = "middle";
-    const t = fitOf(it) + " fit", pw = ctx.measureText(t).width + 16 * k, ph2 = 24 * k;
+    const t = tagsOf(it).join(" · "), pw = ctx.measureText(t).width + 16 * k, ph2 = 24 * k;
     roundRect(ctx, 8 * k, 8 * k, pw, ph2, 5 * k); ctx.fillStyle = "rgba(255,255,255,.94)"; ctx.fill();
     ctx.lineWidth = 1.5 * k; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.stroke();
     ctx.fillStyle = "#111"; ctx.fillText(t, 16 * k, 8 * k + ph2 / 2 + .5 * k); ctx.restore();
@@ -718,7 +728,8 @@ function renderList() {
         <h2>Where your garments are kept</h2>
         <p class="note" style="margin:0">On this device only, in this browser. Nothing is uploaded. On iPhone, add Dimsum to your Home Screen (Share, then Add to Home Screen) and use it from there: Safari deletes a website's saved data after 7 days without a visit, but Home Screen apps keep theirs.</p>
       </section>
-    </div>`;
+    </div>
+    <p class="note" style="margin-top:20px">Dimsum version ${APP_VERSION}</p>`;
   drawThumbs();
 }
 
@@ -815,6 +826,7 @@ function renderSide() {
       <h2>Measurements <span style="text-transform:none;letter-spacing:0;font-weight:500">laid flat</span></h2>
       ${ph && S.canImages ? `<div class="row2"><button class="btn" data-act="auto" id="btn-auto">Place lines with Claude</button></div><div class="ai-status" id="ai-status">Sends this ${esc(role)} photo to Claude, which moves the ticked lines onto the seams. Check them before you save.</div>` : ph ? `<div class="note">Drag the dots onto the seams. Add a Claude API key on the wardrobe page to have Claude place them for you.</div>` : ""}
       <div class="mlist">${mrows || `<div class="note" style="padding:6px">No measurements yet. Add one below.</div>`}</div>
+      ${SIZES[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Size</span><div class="seg" role="group" aria-label="Size">${SIZES[it.type].map(f => `<button data-size="${f}" aria-pressed="${it.size === f}">${f}</button>`).join("")}</div></div>` : ""}
       ${FITS[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Fit</span><div class="seg" role="group" aria-label="Fit">${FITS[it.type].map(f => `<button data-fit="${f}" aria-pressed="${it.fit === f}">${f}</button>`).join("")}</div></div>` : ""}
       <div class="chips">${tpl.map(t => `<button data-addm="${t.key}">+ ${esc(t.label)}</button>`).join("")}<button data-addm="">+ Custom</button></div>
       <div class="note">Values belong to the garment; the tick shows each line on this photo. Tap a name to see where to measure.</div>
@@ -1041,6 +1053,7 @@ function useGuess(what) {
   if ((what === "title" || what === "all") && g.title) it.name = g.title;
   if ((what === "desc" || what === "all") && g.description) it.description = g.description;
   if ((what === "type" || what === "all") && g.type && g.type !== it.type) setType(it, g.type);
+  if (what === "all" && SIZES[it.type] && !it.size) { const sz = sizeFromText(g.size); if (SIZES[it.type].includes(sz)) it.size = sz; }
   it.isNew = false; scheduleSave(it); renderEditor();
   toast("Added. You can still edit it.");
 }
@@ -1054,6 +1067,7 @@ function measureText(it) {
   const rows = it.measures.map(m => ({ m, v: bestValue(it, m) })).filter(r => r.v.cm != null)
     .map(({ m, v }) => `${m.label}: ${it.unit === "cm" ? `${n1(v.cm)} cm (${n1(v.cm / 2.54)}")` : `${n1(v.cm / 2.54)}" (${n1(v.cm)} cm)`}${v.kind === "est." ? ", approx." : ""}`);
   if (fitOf(it)) rows.unshift(`Fit: ${fitOf(it)}`);
+  if (sizeOf(it)) rows.unshift(`Size: ${sizeOf(it)}`);
   return rows.length ? `Measurements, laid flat:\n${rows.join("\n")}` : "";
 }
 function copyString(txt, ok, empty) {
@@ -1097,7 +1111,7 @@ async function renderListing(it, ph) {
   if (stripH) {
     g.fillStyle = "#16202a"; g.fillRect(0, areaH, OW, stripH);
     g.fillStyle = "#97a3b0"; g.font = `600 ${9 * k}px Archivo, Arial, sans-serif`; g.textBaseline = "alphabetic";
-    g.fillText("MEASUREMENTS, LAID FLAT" + (fitOf(it) ? " · " + fitOf(it).toUpperCase() + " FIT" : ""), 16 * k, areaH + 18 * k);
+    g.fillText("MEASUREMENTS, LAID FLAT" + (tagsOf(it).length ? " · " + tagsOf(it).join(" · ").toUpperCase() : ""), 16 * k, areaH + 18 * k);
     const colW = (OW - 32 * k) / cols;
     rows.forEach((r, n) => {
       const x = 16 * k + (n % cols) * colW, y = areaH + 22 * k + Math.floor(n / cols) * rowH + 17 * k;
@@ -1317,6 +1331,7 @@ app.addEventListener("click", e => {
   if (b.dataset.redl !== undefined) { if (S.ready && S.ready[+b.dataset.redl]) downloadOne(S.ready[+b.dataset.redl]); return; }
   if (b.dataset.photo !== undefined) { S.pi = +b.dataset.photo; S.sel = null; renderEditor(); return; }
   if (b.dataset.sel) { S.sel = S.sel === b.dataset.sel ? null : b.dataset.sel; renderSide(); draw(); return; }
+  if (b.dataset.size) { it.size = it.size === b.dataset.size ? "" : b.dataset.size; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.fit) { it.fit = it.fit === b.dataset.fit ? "" : b.dataset.fit; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.shape) { S.exp.shape = b.dataset.shape; renderSide(); return; }
   if (b.dataset.unit) { it.unit = b.dataset.unit; renderEditor(); scheduleSave(it); return; }
