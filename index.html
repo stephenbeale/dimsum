@@ -160,6 +160,11 @@ label.check input{width:18px;height:18px}
 .guess dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:0}
 .guess dt{color:var(--muted)} .guess dd{margin:0;overflow-wrap:anywhere}
 .guess p{margin:0;white-space:pre-wrap}
+.rotbar{position:absolute;right:16px;top:16px;display:flex;gap:8px;z-index:2}
+.iconbtn{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;cursor:pointer;background:rgba(22,32,42,.78);color:#fff;border:1px solid rgba(255,255,255,.4);padding:0;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.iconbtn:hover{background:rgba(22,32,42,.92)}
+.iconbtn svg{width:22px;height:22px}
+.iconbtn[disabled]{opacity:.5}
 .batchbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--tape);border-radius:8px;padding:8px 12px;margin-bottom:12px}
 .sortlist{display:grid;gap:16px}
 .sortgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}
@@ -244,7 +249,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.9";
+const APP_VERSION = "2026-11-08.10";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -607,6 +612,26 @@ async function rotatePhoto(it, ph, deg) {
   });
   if (ph.crop) { const c = turnPt([ph.crop.cx, ph.crop.cy], deg); ph.crop = { cx: c[0], cy: c[1] }; }
 }
+
+const SVG = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICONS = {
+  faces: SVG('<circle cx="8" cy="9.5" r="3"/><path d="M4.6 15c-.6-1.6-.8-3.6-.6-5.6C4.3 6.3 5.8 4.5 8 4.5s3.7 1.8 4 4.9c.2 2 0 4-.6 5.6"/><path d="M2.5 21c0-3 2.4-5 5.5-5s5.5 2 5.5 5"/><circle cx="17" cy="10" r="2.8"/><path d="M14.3 9c.2-2 1.3-3.2 2.7-3.2S19.5 7 19.7 9"/><path d="M13 21c.3-2.7 1.8-4.6 4-4.6s3.7 1.9 4 4.6"/>'),
+  blur: SVG('<rect x="3.5" y="3.5" width="17" height="17" rx="2" stroke-dasharray="3 2.5"/><rect x="7.5" y="7.5" width="4" height="4" fill="currentColor" stroke="none"/><rect x="12.5" y="12.5" width="4" height="4" fill="currentColor" stroke="none"/>'),
+  trash: SVG('<path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>'),
+  copy: SVG('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>'),
+  download: SVG('<path d="M12 4v11"/><path d="M7 10.5l5 5 5-5"/><path d="M4.5 19.5h15"/>'),
+  share: SVG('<path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/>'),
+  open: SVG('<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>'),
+  spark: SVG('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>'),
+  check: SVG('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+  key: SVG('<circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5"/><path d="M16 7l2.5 2.5"/>'),
+  x: SVG('<path d="M6 6l12 12M18 6L6 18"/>'),
+  minus: SVG('<path d="M5 12h14"/>'),
+  merge: SVG('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16"/>'),
+  next: SVG('<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>'),
+  prev: SVG('<path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/>'),
+};
+const I = n => ICONS[n] || "";
 const ICON_ROT_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v6h6"/><path d="M5.5 15a8 8 0 1 0 1.9-8.3L4 10"/></svg>';
 const ICON_ROT_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 4v6h-6"/><path d="M18.5 15a8 8 0 1 1-1.9-8.3L20 10"/></svg>';
 
@@ -791,7 +816,7 @@ function renderList() {
       <section class="panel">
         <h2>Claude (optional)</h2>
         <p class="note" style="margin:0">With your own Anthropic API key, Claude can place the measurement lines for you and double-check for faces the on-device finder misses. The key is stored only in this browser and sent only to api.anthropic.com, with the one photo you ask about. Everything else works without it.</p>
-        <div class="row2"><input type="password" id="f-key" placeholder="${getKey() ? "Key saved. Paste a new one to replace it" : "sk-ant-…"}" autocomplete="off" spellcheck="false" style="flex:1 1 220px"><button class="btn" data-act="savekey">Save key</button>${getKey() ? `<button class="btn ghost danger" data-act="forgetkey">Forget key</button>` : ""}</div>
+        <div class="row2"><input type="password" id="f-key" placeholder="${getKey() ? "Key saved. Paste a new one to replace it" : "sk-ant-…"}" autocomplete="off" spellcheck="false" style="flex:1 1 220px"><button class="btn" data-act="savekey">${I("key")}Save key</button>${getKey() ? `<button class="btn ghost danger" data-act="forgetkey">${I("x")}Forget key</button>` : ""}</div>
         <p class="note" style="margin:0">${getKey() ? "A key is saved." : "No key saved."} Create one at console.anthropic.com.</p>
       </section>
       <section class="panel">
@@ -824,7 +849,8 @@ function renderEditor() {
           ${it.example ? "" : `<button class="ptab add" data-pick="cam" data-target="add" aria-label="Take another photo">${ICON_CAM}+ Photo</button>
           <button class="ptab add" data-pick="lib" data-target="add" aria-label="Choose more photos">${ICON_IMG}Choose</button>`}
         </div>
-        ${ph ? `<div class="stage" id="stage"><canvas id="cv" aria-label="${esc(ROLES[ph.role])} photo with measurement lines"></canvas></div>
+        ${ph ? `<div class="stage" id="stage"><canvas id="cv" aria-label="${esc(ROLES[ph.role])} photo with measurement lines"></canvas>
+          ${it.example ? "" : `<div class="rotbar"><button class="iconbtn" data-act="rot-l" aria-label="Rotate left" title="Rotate left">${ICON_ROT_L}</button><button class="iconbtn" data-act="rot-r" aria-label="Rotate right" title="Rotate right">${ICON_ROT_R}</button></div>`}</div>
         <p class="hint">Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
         : `<div class="stage"><div class="emptystage"><strong>No photos yet</strong><span>Add the front first, then the back and label.</span>
             <div class="row2" style="justify-content:center"><button class="btn primary" data-pick="cam" data-target="add">${ICON_CAM}Take photo</button><button class="btn" data-pick="lib" data-target="add">${ICON_IMG}Choose photos</button></div></div></div>`}
@@ -851,7 +877,7 @@ function renderSide() {
       ${sel ? `<div class="mbody">
         ${how ? `<span class="how">${esc(how)}</span>` : ""}
         ${m.key === "custom" ? `<label>Name <input type="text" id="lbl-${m.id}" data-lbl="${m.id}" value="${esc(m.label)}"></label>` : ""}
-        <div class="row2"><button class="btn ghost danger" data-del="${m.id}">Remove from garment</button></div>
+        <div class="row2"><button class="btn ghost danger" data-del="${m.id}">${I("minus")}Remove from garment</button></div>
       </div>` : ""}
     </div>`;
   }).join("");
@@ -867,16 +893,16 @@ function renderSide() {
       <label class="check"><input type="checkbox" id="f-clean" ${S.exp.clean ? "checked" : ""}> Also save a clean copy, without lines or labels</label>
       ${S.exp.clean ? `<div class="note">Use a clean copy as your first photo on eBay. eBay's photo rules don't allow added text, so keep the measured photos further down the listing.</div>` : ""}
       ${it.photos.length ? `<div class="row2">
-        <button class="btn primary" data-act="saveall">Save ${it.photos.length > 1 ? `all ${it.photos.length} photos` : "photo"} to phone</button>
-        ${it.photos.length > 1 ? `<button class="btn" data-act="saveone">Save this one</button>` : ""}
-        ${canShareFiles() ? `<button class="btn ghost" data-act="shareall">Share…</button>` : ""}
+        <button class="btn primary" data-act="saveall">${I("download")}Save ${it.photos.length > 1 ? `all ${it.photos.length} photos` : "photo"} to phone</button>
+        ${it.photos.length > 1 ? `<button class="btn" data-act="saveone">${I("download")}Save this one</button>` : ""}
+        ${canShareFiles() ? `<button class="btn ghost" data-act="shareall">${I("share")}Share…</button>` : ""}
       </div>` : ""}
       <div class="row2" id="ready" hidden></div>
       <div class="note">${S.exp.shape === "both" ? "Saves a Vinted (1200 × 1600) and an eBay (1600 × 1600) version of each photo" : S.exp.shape === "vinted" ? "Saves at 1200 × 1600, the portrait shape Vinted's feed uses" : S.exp.shape === "ebay" ? "Saves at 1600 × 1600, eBay's recommended square size" : "Keeps each photo's own shape"}${S.exp.shape !== "orig" && S.exp.crop === false ? ", with the whole photo fitted in" : ""}. Photos go to your Downloads, where the Vinted and eBay photo pickers can find them.</div>
       <span class="lbl">Then list it</span>
       <div class="row2">
-        <a class="btn" href="${appLink("vinted")}" target="_blank" rel="noopener" data-golist="vinted">Open Vinted</a>
-        <a class="btn" href="${appLink("ebay")}" target="_blank" rel="noopener" data-golist="ebay">Open eBay</a>
+        <a class="btn" href="${appLink("vinted")}" target="_blank" rel="noopener" data-golist="vinted">${I("open")}Open Vinted</a>
+        <a class="btn" href="${appLink("ebay")}" target="_blank" rel="noopener" data-golist="ebay">${I("open")}Open eBay</a>
       </div>
       <div class="note">Opening Vinted or eBay copies the description and measurements first, ready to paste. Then add the photos you saved. To copy the title or description separately, use the buttons under Listing text.</div>
     </section>`;
@@ -885,7 +911,7 @@ function renderSide() {
       <h2>This photo</h2>
       <div class="row2">
         <select id="f-role" aria-label="What this photo shows">${Object.entries(ROLES).map(([k, l]) => `<option value="${k}" ${ph.role === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-        ${it.example ? "" : `<button class="btn ghost danger" data-act="delphoto">Delete photo</button>`}
+        ${it.example ? "" : `<button class="btn ghost danger" data-act="delphoto">${I("trash")}Delete photo</button>`}
       </div>
       ${it.example ? "" : `<div class="row2"><select id="f-move" aria-label="Move this photo to another garment" style="flex:1 1 220px;min-width:0">
         <option value="">Move this photo to…</option>
@@ -895,20 +921,18 @@ function renderSide() {
       </div>
       ${!ph.faceChecked && !ph.redact.length && !isLabelRole(ph.role) ? `<div class="offer">Is anyone in this photo, say a mirror shot or someone holding it up? You can blur faces before you post it.</div>` : ""}
       <div class="row2">
-        ${canFaces() ? `<button class="btn" data-act="faces" id="btn-faces">Find and blur faces</button>` : ""}
-        <button class="btn" data-act="addblur">Add blur box</button>
+        ${canFaces() ? `<button class="btn" data-act="faces" id="btn-faces">${I("faces")}Find and blur faces</button>` : ""}
+        <button class="btn" data-act="addblur">${I("blur")}Add blur box</button>
       </div>
       <div class="row2">
-        <button class="btn" data-act="rot-l" aria-label="Rotate left">${ICON_ROT_L}Rotate left</button>
-        <button class="btn" data-act="rot-r" aria-label="Rotate right">${ICON_ROT_R}Rotate right</button>
-        ${S.sel && S.sel.startsWith("r:") ? `<button class="btn ghost danger" data-act="delblur">Remove selected blur</button>` : ""}
+        ${S.sel && S.sel.startsWith("r:") ? `<button class="btn ghost danger" data-act="delblur">${I("x")}Remove selected blur</button>` : ""}
       </div>
       <div class="ai-status" id="face-status">${ph.redact.length ? `${ph.redact.length} blurred area${ph.redact.length > 1 ? "s" : ""}. Saved listing photos are always blurred there; the photo you took is kept as it was.` : canFaces() ? "" : "Draw a blur box over anything you don't want to show."}</div>
     </section>` : ""}
     <section class="panel">
       <h2>Measurements <span style="text-transform:none;letter-spacing:0;font-weight:500">laid flat</span></h2>
       ${ph && isLabelRole(ph.role) ? `<div class="note">This is a label photo, so it doesn't show measurement lines. The values still go on the front and back photos.</div>` : ""}
-      ${ph && !isLabelRole(ph.role) && S.canImages ? `<div class="row2"><button class="btn" data-act="auto" id="btn-auto">Place lines with Claude</button></div><div class="ai-status" id="ai-status">Sends this ${esc(role)} photo to Claude, which moves the ticked lines onto the seams. Check them before you save.</div>` : ph ? `<div class="note">Drag the dots onto the seams. Add a Claude API key on the wardrobe page to have Claude place them for you.</div>` : ""}
+      ${ph && !isLabelRole(ph.role) && S.canImages ? `<div class="row2"><button class="btn" data-act="auto" id="btn-auto">${I("spark")}Place lines with Claude</button></div><div class="ai-status" id="ai-status">Sends this ${esc(role)} photo to Claude, which moves the ticked lines onto the seams. Check them before you save.</div>` : ph ? `<div class="note">Drag the dots onto the seams. Add a Claude API key on the wardrobe page to have Claude place them for you.</div>` : ""}
       <div class="mlist">${mrows || `<div class="note" style="padding:6px">No measurements yet. Add one below.</div>`}</div>
       ${SIZES[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Size</span><div class="seg" role="group" aria-label="Size">${SIZES[it.type].map(f => `<button data-size="${f}" aria-pressed="${it.size === f}">${f}</button>`).join("")}</div></div>` : ""}
       ${FITS[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Fit</span><div class="seg" role="group" aria-label="Fit">${FITS[it.type].map(f => `<button data-fit="${f}" aria-pressed="${it.fit === f}">${f}</button>`).join("")}</div></div>` : ""}
@@ -920,15 +944,15 @@ function renderSide() {
       ${guessHTML(it)}
       <label class="lbl" for="f-title">Title</label>
       <input type="text" id="f-title" value="${esc(it.name === "Untitled garment" ? "" : it.name)}" placeholder="Brand, item, colour, size" maxlength="120">
-      <div class="row2"><button class="btn ghost" data-act="copytitle">Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/80 for eBay</span></div>
+      <div class="row2"><button class="btn ghost" data-act="copytitle">${I("copy")}Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/80 for eBay</span></div>
       <label class="lbl" for="f-desc">Description</label>
       <textarea id="f-desc" placeholder="What buyers read: brand, colour, fabric, condition…">${esc(it.description || "")}</textarea>
       <label class="check"><input type="checkbox" id="f-addm" ${it.addMeasures === false ? "" : "checked"}> Add the measurements to the end of the description</label>
       <pre class="descprev" id="desc-preview" ${it.addMeasures === false ? "hidden" : ""}></pre>
-      <div class="row2"><button class="btn ghost" data-act="copy">Copy description</button></div>
+      <div class="row2"><button class="btn ghost" data-act="copy">${I("copy")}Copy description</button></div>
       <label class="lbl" for="f-notes">Private notes</label>
       <textarea id="f-notes" placeholder="Just for you: where you bought it, price paid…">${esc(it.notes || "")}</textarea>
-      ${it.example ? "" : `<div class="row2"><button class="btn ghost danger" data-act="delete" id="btn-del">Delete garment</button></div>`}
+      ${it.example ? "" : `<div class="row2"><button class="btn ghost danger" data-act="delete" id="btn-del">${I("trash")}Delete garment</button></div>`}
     </section>
     ${ph ? `<details class="panel" ${ph.ref ? "open" : ""}>
       <summary>No tape measure? Estimate from the photo</summary>
@@ -1155,12 +1179,12 @@ function guessHTML(it) {
   if (it.example) return "";
   const g = it.guess, busy = guessBusy;
   const canAsk = S.canImages && it.photos.length;
-  const ask = canAsk ? `<button class="btn" data-act="guess" ${busy ? "disabled" : ""}>${busy ? "Looking at your photos…" : g && g.source === "photos" ? "Guess again" : "Suggest title and description"}</button>` : "";
+  const ask = canAsk ? `<button class="btn" data-act="guess" ${busy ? "disabled" : ""}>${I("spark")}${busy ? "Looking at your photos…" : g && g.source === "photos" ? "Guess again" : "Suggest title and description"}</button>` : "";
   if (!g) return `<div id="guessbox">${ask ? `<div class="row2">${ask}</div><div class="note">Claude looks at the photos (the label too, if you've added it) and suggests a title, type and description.</div>` : `<div class="note">Add a Claude API key on the wardrobe page and Dimsum can suggest a title and description from your photos.</div>`}${it.guessErr ? `<div class="ai-status err">${esc(it.guessErr)}</div>` : ""}</div>`;
   if (g.source === "name") {
     return `<div id="guessbox" class="guess"><span class="gh">Our guess, from the file name</span>
       <div>${esc(TEMPLATES[g.type].name)}${it.type === g.type ? " (in use)" : ""}</div>
-      <div class="row2">${it.type !== g.type ? `<button class="btn" data-act="use-type">Use this type</button>` : ""}${ask}</div></div>`;
+      <div class="row2">${it.type !== g.type ? `<button class="btn" data-act="use-type">${I("check")}Use this type</button>` : ""}${ask}</div></div>`;
   }
   const facts = [["Type", TEMPLATES[g.type]?.name], ["Brand", g.brand], ["Size", g.size], ["Colour", g.colour], ["Material", g.material]].filter(([, v]) => v);
   return `<div id="guessbox" class="guess">
@@ -1169,10 +1193,10 @@ function guessHTML(it) {
     <dl>${facts.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
     ${g.description ? `<p>${esc(g.description)}</p>` : ""}
     <div class="row2">
-      <button class="btn primary" data-act="use-all">Use all</button>
-      ${g.title && g.title !== it.name ? `<button class="btn" data-act="use-title">Use title</button>` : ""}
-      ${g.type !== it.type ? `<button class="btn" data-act="use-type">Use type</button>` : ""}
-      ${g.description && g.description !== it.description ? `<button class="btn" data-act="use-desc">Use description</button>` : ""}
+      <button class="btn primary" data-act="use-all">${I("check")}Use all</button>
+      ${g.title && g.title !== it.name ? `<button class="btn" data-act="use-title">${I("check")}Use title</button>` : ""}
+      ${g.type !== it.type ? `<button class="btn" data-act="use-type">${I("check")}Use type</button>` : ""}
+      ${g.description && g.description !== it.description ? `<button class="btn" data-act="use-desc">${I("check")}Use description</button>` : ""}
       ${ask}
     </div>
     ${it.guessErr ? `<div class="ai-status err">${esc(it.guessErr)}</div>` : ""}
@@ -1364,7 +1388,7 @@ function renderReady() {
       S.ready.map((f, i) => `<button class="btn ghost" data-redl="${i}">${esc(f.name.replace(/^.*?-\d+-/, "").replace(/-(portrait|square|original)\.jpg$/, ""))}</button>`).join("");
     return;
   }
-  el.innerHTML = `<button class="btn primary" data-act="shareready">Share ${S.ready.length} photo${S.ready.length > 1 ? "s" : ""}</button> <span class="note">Your photos are ready. Tap to open the share sheet.</span>`;
+  el.innerHTML = `<button class="btn primary" data-act="shareready">${I("share")}Share ${S.ready.length} photo${S.ready.length > 1 ? "s" : ""}</button> <span class="note">Your photos are ready. Tap to open the share sheet.</span>`;
 }
 async function photoBlobForClaude(ph, max = 1280) {
   const img = await loadImg(ph);
@@ -1487,10 +1511,10 @@ function renderSort() {
     }).join("")}
     </div>
     <div class="row2" style="margin-top:16px">
-      <button class="btn primary" data-sort-act="create" ${st.busy ? "disabled" : ""}>Create ${groups.length} garment${groups.length > 1 ? "s" : ""}</button>
-      ${S.canImages ? `<button class="btn" data-sort-act="claude" ${st.busy ? "disabled" : ""}>${st.busy ? "Claude is sorting…" : "Sort again with Claude"}</button>` : ""}
-      ${groups.length > 1 ? `<button class="btn" data-sort-act="one">Make it all one garment</button>` : ""}
-      <button class="btn ghost" data-sort-act="cancel">Cancel</button>
+      <button class="btn primary" data-sort-act="create" ${st.busy ? "disabled" : ""}>${I("check")}Create ${groups.length} garment${groups.length > 1 ? "s" : ""}</button>
+      ${S.canImages ? `<button class="btn" data-sort-act="claude" ${st.busy ? "disabled" : ""}>${I("spark")}${st.busy ? "Claude is sorting…" : "Sort again with Claude"}</button>` : ""}
+      ${groups.length > 1 ? `<button class="btn" data-sort-act="one">${I("merge")}Make it all one garment</button>` : ""}
+      <button class="btn ghost" data-sort-act="cancel">${I("x")}Cancel</button>
     </div>`;
 }
 function photoThumb(url, max) {
@@ -1602,8 +1626,8 @@ function batchBar(it) {
   const i = b.ids.indexOf(it.id); if (i < 0) return "";
   const last = i === b.ids.length - 1;
   return `<div class="batchbar"><strong>Garment ${i + 1} of ${b.ids.length}</strong>
-    <div class="row2">${i > 0 ? `<button class="btn ghost" data-act="batch-prev">Previous</button>` : ""}
-    <button class="btn primary" data-act="${last ? "batch-done" : "batch-next"}">${last ? "Finish" : "Next garment"}</button></div></div>`;
+    <div class="row2">${i > 0 ? `<button class="btn ghost" data-act="batch-prev">${I("prev")}Previous</button>` : ""}
+    <button class="btn primary" data-act="${last ? "batch-done" : "batch-next"}">${last ? I("check") + "Finish" : "Next garment" + I("next")}</button></div></div>`;
 }
 
 // ---------- routing & events ----------
