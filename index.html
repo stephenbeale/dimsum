@@ -257,7 +257,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.15";
+const APP_VERSION = "2026-11-08.16";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };

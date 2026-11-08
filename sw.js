@@ -1,7 +1,7 @@
 // Dimsum offline support.
 // The app page is fetched fresh when online (so updates arrive straight away) and served from the cache when offline.
 // Fonts and the on-device face finder are cached the first time they are used. Claude API calls are never cached.
-const SHELL = "dimsum-shell-v1";
+const SHELL = "dimsum-shell-v2";
 const RUNTIME = "dimsum-runtime-v1";
 const SHELL_FILES = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 const RUNTIME_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com", "cdn.jsdelivr.net", "storage.googleapis.com"];
@@ -23,7 +23,7 @@ function timeout(ms) { return new Promise((_, reject) => setTimeout(() => reject
 async function pageFirstFromNetwork(request) {
   const cache = await caches.open(SHELL);
   try {
-    const fresh = await Promise.race([fetch(request), timeout(5000)]);
+    const fresh = await Promise.race([fetch(request, { cache: "no-cache" }), timeout(8000)]);
     if (fresh && fresh.ok) cache.put("index.html", fresh.clone());
     return fresh;
   } catch {
