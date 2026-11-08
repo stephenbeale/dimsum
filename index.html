@@ -98,8 +98,10 @@ textarea{width:100%;min-height:70px;resize:vertical}
 .seg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
 .banner{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--tape);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px}
 
-.edmain{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}
-@media (max-width:860px){.edmain{grid-template-columns:minmax(0,1fr)}}
+.edmain{display:grid;grid-template-columns:minmax(0,1fr) 360px;grid-template-rows:auto 1fr;grid-template-areas:"stage side" "listing side";gap:20px;align-items:start}
+.edmain > .stagecol{grid-area:stage;min-width:0} .edmain > .side{grid-area:side} .edmain > .listing{grid-area:listing;min-width:0}
+@media (max-width:860px){.edmain{grid-template-columns:minmax(0,1fr);grid-template-rows:none;grid-template-areas:"stage" "side" "listing"}}
+a.btn{color:var(--ink)} a.btn.primary{color:var(--tape-ink)}
 .stage{background:var(--sunk);border-radius:var(--r);display:flex;justify-content:center;align-items:center;padding:10px;min-width:0;position:relative}
 .stage canvas{display:block;touch-action:none;border-radius:4px;max-width:100%}
 .hint{font-size:12px;color:var(--muted);margin:8px 2px 0}
@@ -734,7 +736,7 @@ function renderEditor() {
       <div class="seg" role="group" aria-label="Units on the photo">${[["cm","cm"],["in","in"],["both","cm + in"]].map(([k, l]) => `<button data-unit="${k}" aria-pressed="${it.unit === k}">${l}</button>`).join("")}</div>
     </div>
     <div class="edmain">
-      <div style="min-width:0">
+      <div class="stagecol">
         <div class="ptabs" role="tablist" aria-label="Photos">
           ${it.photos.map((p, i) => `<button class="ptab" role="tab" data-photo="${i}" aria-current="${i === S.pi}"><img src="${esc(photoURL(p))}" alt="">${esc(ROLES[p.role] || p.role)}</button>`).join("")}
           ${it.example ? "" : `<button class="ptab add" data-pick="cam" data-target="add" aria-label="Take another photo">${ICON_CAM}+ Photo</button>
@@ -746,6 +748,7 @@ function renderEditor() {
             <div class="row2" style="justify-content:center"><button class="btn primary" data-pick="cam" data-target="add">${ICON_CAM}Take photo</button><button class="btn" data-pick="lib" data-target="add">${ICON_IMG}Choose photos</button></div></div></div>`}
       </div>
       <aside class="side" id="side"></aside>
+      <div class="listing" id="listing"></div>
     </div>`;
   renderSide();
   if (ph) setupCanvas(); else CV = null;
@@ -772,6 +775,27 @@ function renderSide() {
   }).join("");
   const shapes = [["45", "Portrait 4:5"], ["11", "Square"], ["orig", "Original"]];
   const role = ph ? (ROLES[ph.role] || ph.role).toLowerCase() : "";
+  const lp = $("#listing"); if (lp) lp.innerHTML = `
+    <section class="panel">
+      <h2>Listing photos</h2>
+      <div class="seg" role="group" aria-label="Photo shape">${shapes.map(([k, l]) => `<button data-shape="${k}" aria-pressed="${S.exp.shape === k}">${l}</button>`).join("")}</div>
+      <label class="check"><input type="checkbox" id="f-strip" ${S.exp.strip ? "checked" : ""}> Add a measurements list under photos that show lines</label>
+      ${it.photos.length ? `<div class="row2">
+        <button class="btn primary" data-act="saveall">Save ${it.photos.length > 1 ? `all ${it.photos.length} photos` : "photo"} to phone</button>
+        ${it.photos.length > 1 ? `<button class="btn" data-act="saveone">Save this one</button>` : ""}
+        ${canShareFiles() ? `<button class="btn ghost" data-act="shareall">Share…</button>` : ""}
+      </div>` : ""}
+      <div class="row2" id="ready" hidden></div>
+      <div class="note">Portrait suits Vinted, square suits eBay. The whole garment stays in frame, saved at 1600 px wide, into your Downloads, where the Vinted and eBay photo pickers can find them.</div>
+      <span class="lbl">Then list it</span>
+      <div class="row2">
+        <a class="btn" href="${appLink("vinted")}" target="_blank" rel="noopener" data-golist="vinted">Open Vinted</a>
+        <a class="btn" href="${appLink("ebay")}" target="_blank" rel="noopener" data-golist="ebay">Open eBay</a>
+        <button class="btn ghost" data-act="copytitle">Copy title</button>
+        <button class="btn ghost" data-act="copy">Copy description</button>
+      </div>
+      <div class="note">Opening Vinted or eBay copies the description and measurements first, ready to paste. Then add the photos you saved.</div>
+    </section>`;
   $("#side").innerHTML = `
     ${ph ? `<section class="panel">
       <h2>This photo</h2>
@@ -794,28 +818,6 @@ function renderSide() {
       ${FITS[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Fit</span><div class="seg" role="group" aria-label="Fit">${FITS[it.type].map(f => `<button data-fit="${f}" aria-pressed="${it.fit === f}">${f}</button>`).join("")}</div></div>` : ""}
       <div class="chips">${tpl.map(t => `<button data-addm="${t.key}">+ ${esc(t.label)}</button>`).join("")}<button data-addm="">+ Custom</button></div>
       <div class="note">Values belong to the garment; the tick shows each line on this photo. Tap a name to see where to measure.</div>
-    </section>
-    <section class="panel">
-      <h2>Listing photos</h2>
-      <div class="seg" role="group" aria-label="Photo shape">${shapes.map(([k, l]) => `<button data-shape="${k}" aria-pressed="${S.exp.shape === k}">${l}</button>`).join("")}</div>
-      <label class="check"><input type="checkbox" id="f-strip" ${S.exp.strip ? "checked" : ""}> Add a measurements list under photos that show lines</label>
-      ${it.photos.length ? `<div class="row2">
-        <button class="btn primary" data-act="saveall">Save ${it.photos.length > 1 ? `all ${it.photos.length} photos` : "photo"} to phone</button>
-        ${it.photos.length > 1 ? `<button class="btn" data-act="saveone">Save this one</button>` : ""}
-        ${canShareFiles() ? `<button class="btn ghost" data-act="shareall">Share…</button>` : ""}
-      </div>` : ""}
-      <div class="row2" id="ready" hidden></div>
-      <div class="note">Portrait suits Vinted, square suits eBay. The whole garment stays in frame, saved at 1600 px wide, into your Downloads, where the Vinted and eBay photo pickers can find them.</div>
-      <span class="lbl">Then list it</span>
-      <div class="row2">
-        <a class="btn" href="${appLink("vinted")}" target="_blank" rel="noopener" data-golist="vinted">Open Vinted</a>
-        <a class="btn" href="${appLink("ebay")}" target="_blank" rel="noopener" data-golist="ebay">Open eBay</a>
-      </div>
-      <div class="row2">
-        <button class="btn ghost" data-act="copytitle">Copy title</button>
-        <button class="btn ghost" data-act="copy">Copy description</button>
-      </div>
-      <div class="note">Opening Vinted or eBay copies the description and measurements first, ready to paste. Then add the photos you saved.</div>
     </section>
     <section class="panel">
       <h2>Listing text</h2>
