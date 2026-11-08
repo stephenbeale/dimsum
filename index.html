@@ -244,7 +244,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.7";
+const APP_VERSION = "2026-11-08.8";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -268,12 +268,14 @@ const PRESETS = {
 // ---------- state ----------
 const S = {
   mode: "pending", items: [], loaded: false, loadErr: "", view: "list",
-  cur: null, pi: 0, sel: null, example: null, exp: { shape: "45", strip: true, clean: false }, sort: null,
+  cur: null, pi: 0, sel: null, example: null, exp: { shape: "vinted", strip: true, clean: false, crop: true }, sort: null,
   canImages: false,
   pick: null, busy: false, ready: null,
 };
 const canFaces = () => true;
 try { Object.assign(S.exp, JSON.parse(localStorage.getItem("dimsum.exp") || "{}")); } catch {}
+S.exp.shape = { "45": "vinted", "11": "ebay" }[S.exp.shape] || S.exp.shape;
+if (!["vinted", "ebay", "both", "orig"].includes(S.exp.shape)) S.exp.shape = "vinted";
 function saveExp() { try { localStorage.setItem("dimsum.exp", JSON.stringify(S.exp)); } catch {} }
 const KEY_NAME = "dimsum.claudeKey";
 function getKey() { try { return localStorage.getItem(KEY_NAME) || ""; } catch { return ""; } }
@@ -595,12 +597,13 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
     const v = valueOf(m, ph);
     lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? m.label : m.label + ": " + fmt(v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
   });
+  const V = opt.view || { x: 0, y: 0, w: W, h: H };
   if (tagsOf(it).length && !isLabelRole(ph.role)) {
     ctx.save(); ctx.font = `700 ${12.5 * k}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textBaseline = "middle";
     const t = tagsOf(it).join(" · "), pw = ctx.measureText(t).width + 16 * k, ph2 = 24 * k;
-    roundRect(ctx, 8 * k, 8 * k, pw, ph2, 5 * k); ctx.fillStyle = "rgba(255,255,255,.94)"; ctx.fill();
+    roundRect(ctx, V.x + 8 * k, V.y + 8 * k, pw, ph2, 5 * k); ctx.fillStyle = "rgba(255,255,255,.94)"; ctx.fill();
     ctx.lineWidth = 1.5 * k; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.stroke();
-    ctx.fillStyle = "#111"; ctx.fillText(t, 16 * k, 8 * k + ph2 / 2 + .5 * k); ctx.restore();
+    ctx.fillStyle = "#111"; ctx.fillText(t, V.x + 16 * k, V.y + 8 * k + ph2 / 2 + .5 * k); ctx.restore();
   }
   if (ph.ref && opt.handles) lines.push({ l: ph.ref, color: REF_COLOR, id: "ref", ref: true, text: "Ref " + fmt(ph.ref.len, it.unit) });
   const pills = [];
@@ -631,7 +634,7 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
     const tw = ctx.measureText(p.L.text).width, ph2 = 22 * k, pw = tw + 14 * k;
     const at = t => {
       const mx = p.ax + (p.bx - p.ax) * t, my = p.ay + (p.by - p.ay) * t;
-      const x = clamp(mx - pw / 2, 2 * k, W - pw - 2 * k), y = clamp(my - ph2 / 2 - (p.horiz ? ph2 * .5 + 5 * k : 0), 2 * k, H - ph2 - 2 * k);
+      const x = clamp(mx - pw / 2, V.x + 2 * k, V.x + V.w - pw - 2 * k), y = clamp(my - ph2 / 2 - (p.horiz ? ph2 * .5 + 5 * k : 0), V.y + 2 * k, V.y + V.h - ph2 - 2 * k);
       return { x, y, w: pw, h: ph2 };
     };
     const fixed = typeof p.L.l.t === "number";
@@ -783,7 +786,7 @@ function renderEditor() {
           <button class="ptab add" data-pick="lib" data-target="add" aria-label="Choose more photos">${ICON_IMG}Choose</button>`}
         </div>
         ${ph ? `<div class="stage" id="stage"><canvas id="cv" aria-label="${esc(ROLES[ph.role])} photo with measurement lines"></canvas></div>
-        <p class="hint">Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
+        <p class="hint">Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
         : `<div class="stage"><div class="emptystage"><strong>No photos yet</strong><span>Add the front first, then the back and label.</span>
             <div class="row2" style="justify-content:center"><button class="btn primary" data-pick="cam" data-target="add">${ICON_CAM}Take photo</button><button class="btn" data-pick="lib" data-target="add">${ICON_IMG}Choose photos</button></div></div></div>`}
       </div>
@@ -813,12 +816,14 @@ function renderSide() {
       </div>` : ""}
     </div>`;
   }).join("");
-  const shapes = [["45", "Portrait 4:5"], ["11", "Square"], ["orig", "Original"]];
+  const shapes = [["vinted", "Vinted 3:4"], ["ebay", "eBay 1:1"], ["both", "Both"], ["orig", "Original"]];
   const role = ph ? (ROLES[ph.role] || ph.role).toLowerCase() : "";
   const lp = $("#listing"); if (lp) lp.innerHTML = `
     <section class="panel">
       <h2>Listing photos</h2>
-      <div class="seg" role="group" aria-label="Photo shape">${shapes.map(([k, l]) => `<button data-shape="${k}" aria-pressed="${S.exp.shape === k}">${l}</button>`).join("")}</div>
+      <span class="lbl">Size photos for</span>
+      <div class="seg" role="group" aria-label="Size photos for">${shapes.map(([k, l]) => `<button data-shape="${k}" aria-pressed="${S.exp.shape === k}">${l}</button>`).join("")}</div>
+      ${S.exp.shape !== "orig" ? `<label class="check"><input type="checkbox" id="f-crop" ${S.exp.crop !== false ? "checked" : ""}> Crop to fill the frame (drag the frame on the photo to move it)</label>` : ""}
       <label class="check"><input type="checkbox" id="f-strip" ${S.exp.strip ? "checked" : ""}> Add a measurements list under photos that show lines</label>
       <label class="check"><input type="checkbox" id="f-clean" ${S.exp.clean ? "checked" : ""}> Also save a clean copy, without lines or labels</label>
       ${S.exp.clean ? `<div class="note">Use a clean copy as your first photo on eBay. eBay's photo rules don't allow added text, so keep the measured photos further down the listing.</div>` : ""}
@@ -828,7 +833,7 @@ function renderSide() {
         ${canShareFiles() ? `<button class="btn ghost" data-act="shareall">Share…</button>` : ""}
       </div>` : ""}
       <div class="row2" id="ready" hidden></div>
-      <div class="note">Portrait suits Vinted, square suits eBay. The whole garment stays in frame, saved at 1600 px wide, into your Downloads, where the Vinted and eBay photo pickers can find them.</div>
+      <div class="note">${S.exp.shape === "both" ? "Saves a Vinted (1200 × 1600) and an eBay (1600 × 1600) version of each photo" : S.exp.shape === "vinted" ? "Saves at 1200 × 1600, the portrait shape Vinted's feed uses" : S.exp.shape === "ebay" ? "Saves at 1600 × 1600, eBay's recommended square size" : "Keeps each photo's own shape"}${S.exp.shape !== "orig" && S.exp.crop === false ? ", with the whole photo fitted in" : ""}. Photos go to your Downloads, where the Vinted and eBay photo pickers can find them.</div>
       <span class="lbl">Then list it</span>
       <div class="row2">
         <a class="btn" href="${appLink("vinted")}" target="_blank" rel="noopener" data-golist="vinted">Open Vinted</a>
@@ -947,6 +952,7 @@ function setupCanvas() {
       const x = p.x / CV.w, y = p.y / CV.h;
       if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return { id: "r:" + r.id, box: r, end: "boxmove" };
     }
+    if (cropFramesFor(it, ph).length) return { id: null, end: "crop", c0: { ...cropCentre(it, ph) } };
     return null;
   }
   cv.onpointerdown = e => {
@@ -965,7 +971,10 @@ function setupCanvas() {
     const d = CV.drag; if (!d) { if (e.pointerType === "mouse") cv.style.cursor = hit(pt(e), false) ? "grab" : "default"; return; }
     const p = pt(e);
     const dx = (p.x - d.start.x) / CV.w, dy = (p.y - d.start.y) / CV.h;
-    if (d.box) {
+    if (d.end === "crop") {
+      ph.crop = { cx: clamp(d.c0.cx + dx, 0, 1), cy: clamp(d.c0.cy + dy, 0, 1) };
+      // keep the stored centre where the frame actually is, so the next drag starts from there
+    } else if (d.box) {
       const b = d.box, o = d.box0;
       if (d.end === "resize") { b.w = clamp(o.w + dx, .02, 1 - o.x); b.h = clamp(o.h + dy, .02, 1 - o.y); }
       else { b.x = clamp(o.x + dx, 0, 1 - o.w); b.y = clamp(o.y + dy, 0, 1 - o.h); }
@@ -979,12 +988,37 @@ function setupCanvas() {
     } else {
       const o = d.end === "a" ? d.a0 : d.b0; d.l[d.end] = [clamp(o[0] + dx, 0, 1), clamp(o[1] + dy, 0, 1)];
     }
-    const m = it.measures.find(m => m.id === d.id); if (m) m.touched = true;
+    const m = d.id && it.measures.find(m => m.id === d.id); if (m) m.touched = true;
     draw(); updateValues();
   };
-  const end = () => { if (CV && CV.drag) { CV.drag = null; draw(); scheduleSave(it); } };
+  const end = () => {
+    if (!CV || !CV.drag) return;
+    if (CV.drag.end === "crop") {
+      const fr = cropFramesFor(it, ph); if (fr.length) { const r = fr[0].r; ph.crop = { cx: r.x + r.w / 2, cy: r.y + r.h / 2 }; }
+    }
+    CV.drag = null; draw(); scheduleSave(it);
+  };
   cv.onpointerup = end; cv.onpointercancel = end;
   window.onresize = () => CV && CV.layout && CV.layout();
+}
+function cropFramesFor(it, ph) {
+  if (S.exp.shape === "orig" || S.exp.crop === false || isLabelRole(ph.role)) return [];
+  return platformsFor(S.exp.shape).map(plat => { const G = listingGeom(it, ph, plat, false); return { plat, r: cropRect(it, ph, G.OW / G.areaH) }; });
+}
+function drawCropFrames(ctx, it, ph, w, h) {
+  const frames = cropFramesFor(it, ph); if (!frames.length) return;
+  const big = frames.reduce((a, b) => a.r.w * a.r.h >= b.r.w * b.r.h ? a : b).r;
+  ctx.save(); ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.beginPath(); ctx.rect(0, 0, w, h);
+  ctx.rect(big.x * w, big.y * h, big.w * w, big.h * h); ctx.fill("evenodd"); ctx.restore();
+  ctx.save(); ctx.font = `700 11px "IBM Plex Mono", ui-monospace, monospace`; ctx.textBaseline = "top";
+  frames.forEach((f, i) => {
+    const x = f.r.x * w, y = f.r.y * h, fw = f.r.w * w, fh = f.r.h * h;
+    ctx.setLineDash(i ? [6, 4] : []); ctx.lineWidth = 2; ctx.strokeStyle = i ? "#fff" : "#f4c430"; ctx.strokeRect(x + 1, y + 1, fw - 2, fh - 2);
+    const t = PLATFORMS[f.plat].label, tw = ctx.measureText(t).width + 10;
+    ctx.setLineDash([]); ctx.fillStyle = i ? "#fff" : "#f4c430"; ctx.fillRect(x + fw - tw - 4, y + fh - 20 - i * 22, tw, 18);
+    ctx.fillStyle = "#111"; ctx.fillText(t, x + fw - tw + 1, y + fh - 17 - i * 22);
+  });
+  ctx.restore();
 }
 function draw() {
   if (!CV || !CV.img) return;
@@ -993,7 +1027,8 @@ function draw() {
   ctx.drawImage(img, 0, 0, w, h);
   drawRedactions(ctx, img, ph, w, h, 1, { sel: S.sel, handles: true });
   CV.pills = [];
-  drawOverlay(ctx, it, ph, w, h, 1, { sel: S.sel, handles: true, pillsOut: CV.pills });
+  drawOverlay(ctx, it, ph, w, h, Math.max(.8, Math.max(w, h) / 750), { sel: S.sel, handles: true, pillsOut: CV.pills });
+  drawCropFrames(ctx, it, ph, w, h);
   const d = CV.drag;
   if (d && d.l && (d.end === "a" || d.end === "b")) {
     const pnt = d.l[d.end], px = pnt[0] * w, py = pnt[1] * h, R = Math.min(64, w / 5), Z = 3;
@@ -1156,24 +1191,51 @@ function avgColor(img) {
   try { const c = document.createElement("canvas"); c.width = c.height = 1; const g = c.getContext("2d"); g.drawImage(img, 0, 0, 1, 1); const d = g.getImageData(0, 0, 1, 1).data; return `rgb(${d[0]},${d[1]},${d[2]})`; }
   catch { return "#d9d9d9"; }
 }
-async function renderListing(it, ph, clean = false) {
-  const img = await loadImg(ph);
-  const shape = S.exp.shape;
-  const showsLines = it.measures.some(m => ph.lines[m.id]);
-  const rows = it.measures.map((m, i) => ({ m, i, v: bestValue(it, m) })).filter(r => r.v.cm != null);
-  const iw = img.naturalWidth, ih = img.naturalHeight;
-  const OW = shape === "orig" ? iw : 1600, k = OW / 600;
+// Platform sizes: eBay shows square photos (1600 x 1600 recommended); Vinted's feed is portrait, so 3:4, a phone camera's own shape.
+const PLATFORMS = { vinted: { label: "Vinted", w: 1200, h: 1600, tag: "vinted" }, ebay: { label: "eBay", w: 1600, h: 1600, tag: "ebay" } };
+const platformsFor = shape => shape === "both" ? ["vinted", "ebay"] : shape === "orig" ? ["orig"] : [shape];
+function stripRows(it) { return it.measures.map((m, i) => ({ m, i, v: bestValue(it, m) })).filter(r => r.v.cm != null); }
+function listingGeom(it, ph, plat, clean) {
+  const rows = stripRows(it), showsLines = !isLabelRole(ph.role) && it.measures.some(m => ph.lines[m.id]);
+  const OW = plat === "orig" ? ph.w : PLATFORMS[plat].w, k = Math.max(OW, plat === "orig" ? ph.h : PLATFORMS[plat].h) / 750;
   const cols = rows.length > 3 ? 2 : 1, rowH = 24 * k;
   const stripH = !clean && S.exp.strip && showsLines && rows.length ? 22 * k + Math.ceil(rows.length / cols) * rowH + 10 * k : 0;
-  let OH, areaH;
-  if (shape === "orig") { areaH = OW * ih / iw; OH = areaH + stripH; }
-  else { OH = shape === "11" ? OW : OW * 1.25; areaH = OH - stripH; }
-  const pad = shape === "orig" ? 0 : 12 * k;
-  const f = Math.min((OW - 2 * pad) / iw, (areaH - 2 * pad) / ih), dw = iw * f, dh = ih * f, ox = (OW - dw) / 2, oy = (areaH - dh) / 2;
+  const OH = plat === "orig" ? OW * ph.h / ph.w + stripH : PLATFORMS[plat].h;
+  return { OW, OH, areaH: OH - stripH, stripH, k, cols, rowH, rows };
+}
+// The crop frame: the largest rectangle of the target shape inside the photo, centred on ph.crop (or on the measurement lines).
+function cropCentre(it, ph) {
+  if (ph.crop) return ph.crop;
+  const pts = it.measures.map(m => ph.lines[m.id]).filter(Boolean).flatMap(l => [l.a, l.b]);
+  if (!pts.length) return { cx: .5, cy: .5 };
+  const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+  return { cx: (Math.min(...xs) + Math.max(...xs)) / 2, cy: (Math.min(...ys) + Math.max(...ys)) / 2 };
+}
+function cropRect(it, ph, ratio) {
+  const iw = ph.w, ih = ph.h;
+  let fw, fh; if (iw / ih > ratio) { fh = ih; fw = ih * ratio; } else { fw = iw; fh = iw / ratio; }
+  const c = cropCentre(it, ph);
+  const x = clamp(c.cx * iw - fw / 2, 0, iw - fw), y = clamp(c.cy * ih - fh / 2, 0, ih - fh);
+  return { x: x / iw, y: y / ih, w: fw / iw, h: fh / ih };
+}
+async function renderListing(it, ph, clean = false, plat = "orig") {
+  const img = await loadImg(ph);
+  const G = listingGeom(it, ph, plat, clean), { OW, OH, areaH, stripH, k, cols, rowH, rows } = G;
+  const iw = img.naturalWidth, ih = img.naturalHeight;
   const c = document.createElement("canvas"); c.width = Math.round(OW); c.height = Math.round(OH); const g = c.getContext("2d");
-  g.fillStyle = avgColor(img); g.fillRect(0, 0, OW, areaH);
+  let dw, dh, ox, oy, view;
+  if (plat !== "orig" && S.exp.crop !== false) {
+    const r = cropRect(it, ph, OW / areaH);
+    dw = OW / r.w; dh = areaH / r.h; ox = -r.x * dw; oy = -r.y * dh;
+    view = { x: r.x * dw, y: r.y * dh, w: OW, h: areaH };
+  } else {
+    const pad = plat === "orig" ? 0 : 12 * k;
+    const f = Math.min((OW - 2 * pad) / iw, (areaH - 2 * pad) / ih); dw = iw * f; dh = ih * f; ox = (OW - dw) / 2; oy = (areaH - dh) / 2;
+    g.fillStyle = avgColor(img); g.fillRect(0, 0, OW, areaH);
+  }
+  g.save(); g.beginPath(); g.rect(0, 0, OW, areaH); g.clip();
   g.drawImage(img, ox, oy, dw, dh);
-  g.save(); g.translate(ox, oy); drawRedactions(g, img, ph, dw, dh, k); if (!clean) drawOverlay(g, it, ph, dw, dh, k, { handles: false }); g.restore();
+  g.translate(ox, oy); drawRedactions(g, img, ph, dw, dh, k); if (!clean) drawOverlay(g, it, ph, dw, dh, k, { handles: false, view }); g.restore();
   if (stripH) {
     g.fillStyle = "#16202a"; g.fillRect(0, areaH, OW, stripH);
     g.fillStyle = "#97a3b0"; g.font = `600 ${9 * k}px Archivo, Arial, sans-serif`; g.textBaseline = "alphabetic";
@@ -1191,11 +1253,11 @@ async function renderListing(it, ph, clean = false) {
   }
   return new Promise(r => c.toBlob(r, "image/jpeg", 0.92));
 }
-function fileName(it, ph, idx, kind = "") {
+function fileName(it, ph, idx, kind = "", plat = "orig") {
   const name = (it.name || "garment").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "garment";
   const sameRole = it.photos.filter(p => p.role === ph.role).length > 1;
   const order = kind === "clean" ? "a" : kind === "measured" ? "b" : "";
-  return `${name}-${idx + 1}${order}-${ph.role}${sameRole ? "-" + (idx + 1) : ""}${kind ? "-" + kind : ""}-${{ "45": "portrait", "11": "square", orig: "original" }[S.exp.shape]}.jpg`;
+  return `${name}-${idx + 1}${order}-${ph.role}${sameRole ? "-" + (idx + 1) : ""}${kind ? "-" + kind : ""}-${plat === "orig" ? "original" : PLATFORMS[plat].tag}.jpg`;
 }
 function canShareFiles() {
   try { return !!(navigator.canShare && navigator.canShare({ files: [new File(["x"], "x.jpg", { type: "image/jpeg" })] })); } catch { return false; }
@@ -1216,12 +1278,12 @@ async function saveListing(all, mode = "save") {
   setStatus(list.length > 1 ? `Making ${list.length} listing photos…` : "Making the listing photo…");
   const files = [];
   try {
-    for (const [ph, i] of list) {
-      const lined = it.measures.some(m => ph.lines[m.id]);
+    for (const plat of platformsFor(S.exp.shape)) for (const [ph, i] of list) {
+      const lined = !isLabelRole(ph.role) && it.measures.some(m => ph.lines[m.id]);
       if (S.exp.clean && lined) {
-        files.push(new File([await renderListing(it, ph, true)], fileName(it, ph, i, "clean"), { type: "image/jpeg" }));
-        files.push(new File([await renderListing(it, ph)], fileName(it, ph, i, "measured"), { type: "image/jpeg" }));
-      } else files.push(new File([await renderListing(it, ph)], fileName(it, ph, i), { type: "image/jpeg" }));
+        files.push(new File([await renderListing(it, ph, true, plat)], fileName(it, ph, i, "clean", plat), { type: "image/jpeg" }));
+        files.push(new File([await renderListing(it, ph, false, plat)], fileName(it, ph, i, "measured", plat), { type: "image/jpeg" }));
+      } else files.push(new File([await renderListing(it, ph, false, plat)], fileName(it, ph, i, "", plat), { type: "image/jpeg" }));
     }
   }
   catch (e) { setStatus(""); toast(e.message || "Couldn't make the photos."); return; }
@@ -1507,6 +1569,7 @@ app.addEventListener("change", e => {
   const ph = curPhoto();
   if (t.id === "f-strip") { S.exp.strip = t.checked; saveExp(); return; }
   if (t.id === "f-addm") { it.addMeasures = t.checked; renderDescPreview(); scheduleSave(it); return; }
+  if (t.id === "f-crop") { S.exp.crop = t.checked; saveExp(); renderSide(); draw(); return; }
   if (t.id === "f-clean") { S.exp.clean = t.checked; saveExp(); renderSide(); return; }
   if (t.dataset.on) {
     const m = it.measures.find(m => m.id === t.dataset.on);
@@ -1564,7 +1627,7 @@ app.addEventListener("click", e => {
   if (b.dataset.sel) { S.sel = S.sel === b.dataset.sel ? null : b.dataset.sel; renderSide(); draw(); return; }
   if (b.dataset.size) { it.size = it.size === b.dataset.size ? "" : b.dataset.size; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.fit) { it.fit = it.fit === b.dataset.fit ? "" : b.dataset.fit; renderSide(); draw(); scheduleSave(it); return; }
-  if (b.dataset.shape) { S.exp.shape = b.dataset.shape; saveExp(); renderSide(); return; }
+  if (b.dataset.shape) { S.exp.shape = b.dataset.shape; saveExp(); renderSide(); draw(); return; }
   if (b.dataset.unit) { it.unit = b.dataset.unit; renderEditor(); scheduleSave(it); return; }
   if (b.dataset.del) { it.measures = it.measures.filter(m => m.id !== b.dataset.del); it.photos.forEach(p => delete p.lines[b.dataset.del]); S.sel = null; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.addm !== undefined) {
