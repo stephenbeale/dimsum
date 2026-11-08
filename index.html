@@ -242,7 +242,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.4";
+const APP_VERSION = "2026-11-08.5";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -831,6 +831,12 @@ function renderSide() {
         <select id="f-role" aria-label="What this photo shows">${Object.entries(ROLES).map(([k, l]) => `<option value="${k}" ${ph.role === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         ${it.example ? "" : `<button class="btn ghost danger" data-act="delphoto">Delete photo</button>`}
       </div>
+      ${it.example ? "" : `<div class="row2"><select id="f-move" aria-label="Move this photo to another garment" style="flex:1 1 220px;min-width:0">
+        <option value="">Move this photo to…</option>
+        <option value="new">A new garment</option>
+        ${S.items.filter(x => x.id !== it.id).map(x => `<option value="${esc(x.id)}">${esc(x.name)} · ${esc(TEMPLATES[x.type]?.name || "")} · ${x.photos.length} photo${x.photos.length === 1 ? "" : "s"}</option>`).join("")}
+      </select>`}
+      </div>
       ${!ph.faceChecked && !ph.redact.length && !isLabelRole(ph.role) ? `<div class="offer">Is anyone in this photo, say a mirror shot or someone holding it up? You can blur faces before you post it.</div>` : ""}
       <div class="row2">
         ${canFaces() ? `<button class="btn" data-act="faces" id="btn-faces">Find and blur faces</button>` : ""}
@@ -1397,6 +1403,27 @@ document.addEventListener("click", e => {
   else if (act === "cancel") { for (const x of S.sort.photos) URL.revokeObjectURL(x.url); S.sort = null; S.view = "list"; render(); }
 });
 
+async function movePhoto(it, idx, target) {
+  const ph = it.photos[idx]; if (!ph) return;
+  const moved = { ...ph, lines: {}, ref: null };
+  let dest;
+  if (target === "new") {
+    if (!isLabelRole(moved.role)) moved.role = "front";
+    dest = { id: uid(), name: "Untitled garment", type: it.type, unit: it.unit, notes: "", measures: freshMeasures(it.type), photos: [], createdAt: Date.now(), updatedAt: Date.now() };
+  } else {
+    const src = S.items.find(x => x.id === target); if (!src) return;
+    dest = { ...src, measures: structuredClone(src.measures), photos: src.photos.map(p => ({ ...p })) };
+  }
+  if (!isLabelRole(moved.role) && !dest.photos.some(p => Object.keys(p.lines || {}).length)) moved.lines = defaultLines(dest);
+  dest.photos.push(moved); dest.updatedAt = Date.now();
+  try { await writeItem(dest); } catch { toast("Couldn't move the photo. Storage may be full."); renderSide(); return; }
+  it.photos.splice(idx, 1);
+  it.updatedAt = Date.now(); savePending = it; await flushSave();
+  if (S.batch && target === "new") S.batch.ids.push(dest.id);
+  S.pi = Math.max(0, idx - 1); S.sel = null;
+  renderEditor();
+  toast(target === "new" ? (S.batch ? "Moved to a new garment, added to the end of this batch" : "Moved to a new garment in your wardrobe") : `Moved to "${dest.name}"`);
+}
 function openBatch(i) {
   const b = S.batch; if (!b) return;
   flushSave();
@@ -1444,6 +1471,7 @@ app.addEventListener("change", e => {
     if (S.sel === m.id && !t.checked) S.sel = null;
     draw(); updateValues(); scheduleSave(it); return;
   }
+  if (t.id === "f-move") { if (t.value) movePhoto(it, S.pi, t.value); return; }
   if (t.id === "f-role") { ph.role = t.value; if (isLabelRole(ph.role)) ph.lines = {}; S.sel = null; renderEditor(); scheduleSave(it); return; }
   if (t.id === "f-type") {
     setType(it, t.value);
