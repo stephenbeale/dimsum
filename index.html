@@ -250,7 +250,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.11";
+const APP_VERSION = "2026-11-08.12";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -1688,6 +1688,16 @@ function setActual(it, t) {
   const v = parseNum(t.value); m.actual = v ? fromUnit(v, it.unit) : null;
   draw(); updateValues(); scheduleSave(it);
 }
+// Typing in a measurement box: close any other open row (without redrawing the panel, so the keyboard stays up)
+// and highlight that measurement's line on the photo.
+app.addEventListener("focusin", e => {
+  const t = e.target; if (!S.cur || !t.dataset || !t.dataset.actVal) return;
+  const id = t.dataset.actVal;
+  if (S.sel && S.sel !== id) {
+    for (const row of document.querySelectorAll(".m.sel")) { row.classList.remove("sel"); row.querySelector(".mbody")?.remove(); row.querySelector(".mname")?.setAttribute("aria-expanded", "false"); }
+  }
+  S.sel = id; draw();
+});
 app.addEventListener("focusout", e => { const t = e.target; if (S.cur && t.dataset && t.dataset.actVal) { setActual(S.cur, t); flushSave(); } });
 app.addEventListener("input", e => {
   const t = e.target, it = S.cur; if (!it) return;
