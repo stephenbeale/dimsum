@@ -160,7 +160,8 @@ label.check input{width:18px;height:18px}
 .guess dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:0}
 .guess dt{color:var(--muted)} .guess dd{margin:0;overflow-wrap:anywhere}
 .guess p{margin:0;white-space:pre-wrap}
-.rotbar{position:absolute;right:16px;top:16px;display:flex;gap:8px;z-index:2}
+.cvwrap{position:relative;display:inline-block;line-height:0;max-width:100%}
+.rotbar{position:absolute;right:8px;top:8px;display:flex;gap:8px;z-index:2}
 .iconbtn{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;cursor:pointer;background:rgba(22,32,42,.78);color:#fff;border:1px solid rgba(255,255,255,.4);padding:0;box-shadow:0 1px 4px rgba(0,0,0,.3)}
 .iconbtn:hover{background:rgba(22,32,42,.92)}
 .iconbtn svg{width:22px;height:22px}
@@ -249,7 +250,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.10";
+const APP_VERSION = "2026-11-08.11";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -423,7 +424,7 @@ function toDoc(it) {
   return {
     name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", addMeasures: it.addMeasures !== false, createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
-    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "" })),
+    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, crop: p.crop || null })),
   };
 }
 const toLocal = it => { const d = toDoc(it); d.id = it.id; d.photos.forEach((p, i) => p.blob = it.photos[i].blob || null); return d; };
@@ -600,7 +601,8 @@ async function rotatePhoto(it, ph, deg) {
   ph.blob = r.blob; ph.w = r.w; ph.h = r.h;
   if (urlCache.has(ph.id)) { URL.revokeObjectURL(urlCache.get(ph.id)); urlCache.delete(ph.id); }
   imgCache.delete(old);
-  const untouched = !it.measures.some(m => m.touched);
+  // Lines nobody has dragged on this photo are still in their upright starting places: put them back there after turning.
+  const untouched = !ph.linesMoved;
   for (const [id, l] of Object.entries(ph.lines)) {
     if (untouched) { const m = it.measures.find(m => m.id === id); if (m) { ph.lines[id] = defaultLine(it, m); continue; } }
     l.a = turnPt(l.a, deg); l.b = turnPt(l.b, deg); if (typeof l.t === "number" && deg === 180) l.t = 1 - l.t;
@@ -849,8 +851,8 @@ function renderEditor() {
           ${it.example ? "" : `<button class="ptab add" data-pick="cam" data-target="add" aria-label="Take another photo">${ICON_CAM}+ Photo</button>
           <button class="ptab add" data-pick="lib" data-target="add" aria-label="Choose more photos">${ICON_IMG}Choose</button>`}
         </div>
-        ${ph ? `<div class="stage" id="stage"><canvas id="cv" aria-label="${esc(ROLES[ph.role])} photo with measurement lines"></canvas>
-          ${it.example ? "" : `<div class="rotbar"><button class="iconbtn" data-act="rot-l" aria-label="Rotate left" title="Rotate left">${ICON_ROT_L}</button><button class="iconbtn" data-act="rot-r" aria-label="Rotate right" title="Rotate right">${ICON_ROT_R}</button></div>`}</div>
+        ${ph ? `<div class="stage" id="stage"><div class="cvwrap"><canvas id="cv" aria-label="${esc(ROLES[ph.role])} photo with measurement lines"></canvas>
+          ${it.example ? "" : `<div class="rotbar"><button class="iconbtn" data-act="rot-l" aria-label="Rotate left" title="Rotate left">${ICON_ROT_L}</button><button class="iconbtn" data-act="rot-r" aria-label="Rotate right" title="Rotate right">${ICON_ROT_R}</button></div>`}</div></div>
         <p class="hint">Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
         : `<div class="stage"><div class="emptystage"><strong>No photos yet</strong><span>Add the front first, then the back and label.</span>
             <div class="row2" style="justify-content:center"><button class="btn primary" data-pick="cam" data-target="add">${ICON_CAM}Take photo</button><button class="btn" data-pick="lib" data-target="add">${ICON_IMG}Choose photos</button></div></div></div>`}
@@ -937,6 +939,7 @@ function renderSide() {
       ${SIZES[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Size</span><div class="seg" role="group" aria-label="Size">${SIZES[it.type].map(f => `<button data-size="${f}" aria-pressed="${it.size === f}">${f}</button>`).join("")}</div></div>` : ""}
       ${FITS[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Fit</span><div class="seg" role="group" aria-label="Fit">${FITS[it.type].map(f => `<button data-fit="${f}" aria-pressed="${it.fit === f}">${f}</button>`).join("")}</div></div>` : ""}
       <div class="chips">${tpl.map(t => `<button data-addm="${t.key}">+ ${esc(t.label)}</button>`).join("")}<button data-addm="">+ Custom</button></div>
+      ${ph && !isLabelRole(ph.role) && Object.keys(ph.lines).length ? `<div class="row2"><button class="btn ghost" data-act="resetlines">${I("prev")}Reset lines on this photo</button></div>` : ""}
       <div class="note">Values belong to the garment; the tick shows each line on this photo. Tap a name to see where to measure it.</div>
     </section>
     <section class="panel">
@@ -1055,7 +1058,8 @@ function setupCanvas() {
     } else {
       const o = d.end === "a" ? d.a0 : d.b0; d.l[d.end] = [clamp(o[0] + dx, 0, 1), clamp(o[1] + dy, 0, 1)];
     }
-    const m = d.id && it.measures.find(m => m.id === d.id); if (m) m.touched = true;
+    const m = d.id && it.measures.find(m => m.id === d.id);
+    if (m && (d.end === "a" || d.end === "b" || d.end === "both") && Math.hypot(p.x - d.start.x, p.y - d.start.y) > 4) { m.touched = true; ph.linesMoved = true; }
     draw(); updateValues();
   };
   const end = () => {
@@ -1420,7 +1424,7 @@ Return one entry in "measures" per measurement, using its key, with a and b as [
     let n = 0;
     for (const m of on) {
       const q = r.measures?.[m.id];
-      if (q && okPt(q.a) && okPt(q.b)) { ph.lines[m.id] = { a: q.a.map(v => clamp(v, 0, 1)), b: q.b.map(v => clamp(v, 0, 1)) }; m.touched = true; n++; }
+      if (q && okPt(q.a) && okPt(q.b)) { ph.lines[m.id] = { a: q.a.map(v => clamp(v, 0, 1)), b: q.b.map(v => clamp(v, 0, 1)) }; m.touched = true; ph.linesMoved = true; n++; }
     }
     let refMsg = "";
     const ref = r.reference, map = { card: "card", a4: "a4l", letter: "letter", ruler: "ruler" };
@@ -1741,6 +1745,7 @@ app.addEventListener("click", e => {
   else if (act === "saveone") saveListing(false);
   else if (act === "auto") autoPlace();
   else if (act === "faces") findFaces();
+  else if (act === "resetlines") { for (const id of Object.keys(ph.lines)) { const m = it.measures.find(m => m.id === id); if (m) ph.lines[id] = defaultLine(it, m); } ph.linesMoved = false; S.sel = null; draw(); updateValues(); scheduleSave(it); toast("Lines put back in their starting places"); }
   else if (act === "rot-l" || act === "rot-r") {
     if (it.example) { toast("The example photos can't be rotated."); return; }
     b.disabled = true;
