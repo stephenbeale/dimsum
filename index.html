@@ -244,7 +244,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.8";
+const APP_VERSION = "2026-11-08.9";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -571,6 +571,45 @@ async function ingest(files, target) {
   } finally { S.busy = false; }
 }
 
+// ---------- rotation ----------
+function rotateBlob(blob, deg) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(blob), im = new Image();
+    im.onload = () => {
+      const w = im.naturalWidth, h = im.naturalHeight, side = deg % 180 !== 0;
+      const c = document.createElement("canvas"); c.width = side ? h : w; c.height = side ? w : h;
+      const g = c.getContext("2d"); g.translate(c.width / 2, c.height / 2); g.rotate(deg * Math.PI / 180); g.drawImage(im, -w / 2, -h / 2);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => b ? res({ blob: b, w: c.width, h: c.height }) : rej(new Error("The photo couldn't be rotated.")), "image/jpeg", 0.9);
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error("The photo couldn't be read.")); };
+    im.src = url;
+  });
+}
+// Where a point (fractions of width and height) ends up after turning the photo clockwise by deg.
+const turnPt = (q, deg) => deg === 90 ? [1 - q[1], q[0]] : deg === 180 ? [1 - q[0], 1 - q[1]] : deg === 270 ? [q[1], 1 - q[0]] : q;
+async function rotatePhoto(it, ph, deg) {
+  deg = ((deg % 360) + 360) % 360; if (!deg || !ph.blob) return;
+  const old = photoURL(ph);
+  const r = await rotateBlob(ph.blob, deg);
+  ph.blob = r.blob; ph.w = r.w; ph.h = r.h;
+  if (urlCache.has(ph.id)) { URL.revokeObjectURL(urlCache.get(ph.id)); urlCache.delete(ph.id); }
+  imgCache.delete(old);
+  const untouched = !it.measures.some(m => m.touched);
+  for (const [id, l] of Object.entries(ph.lines)) {
+    if (untouched) { const m = it.measures.find(m => m.id === id); if (m) { ph.lines[id] = defaultLine(it, m); continue; } }
+    l.a = turnPt(l.a, deg); l.b = turnPt(l.b, deg); if (typeof l.t === "number" && deg === 180) l.t = 1 - l.t;
+  }
+  if (ph.ref) { ph.ref.a = turnPt(ph.ref.a, deg); ph.ref.b = turnPt(ph.ref.b, deg); }
+  ph.redact = ph.redact.map(b => {
+    const p1 = turnPt([b.x, b.y], deg), p2 = turnPt([b.x + b.w, b.y + b.h], deg);
+    return { ...b, x: Math.min(p1[0], p2[0]), y: Math.min(p1[1], p2[1]), w: Math.abs(p2[0] - p1[0]), h: Math.abs(p2[1] - p1[1]) };
+  });
+  if (ph.crop) { const c = turnPt([ph.crop.cx, ph.crop.cy], deg); ph.crop = { cx: c[0], cy: c[1] }; }
+}
+const ICON_ROT_L = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v6h6"/><path d="M5.5 15a8 8 0 1 0 1.9-8.3L4 10"/></svg>';
+const ICON_ROT_R = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 4v6h-6"/><path d="M18.5 15a8 8 0 1 1-1.9-8.3L20 10"/></svg>';
+
 // ---------- drawing ----------
 function roundRect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 const tiny = document.createElement("canvas");
@@ -858,6 +897,10 @@ function renderSide() {
       <div class="row2">
         ${canFaces() ? `<button class="btn" data-act="faces" id="btn-faces">Find and blur faces</button>` : ""}
         <button class="btn" data-act="addblur">Add blur box</button>
+      </div>
+      <div class="row2">
+        <button class="btn" data-act="rot-l" aria-label="Rotate left">${ICON_ROT_L}Rotate left</button>
+        <button class="btn" data-act="rot-r" aria-label="Rotate right">${ICON_ROT_R}Rotate right</button>
         ${S.sel && S.sel.startsWith("r:") ? `<button class="btn ghost danger" data-act="delblur">Remove selected blur</button>` : ""}
       </div>
       <div class="ai-status" id="face-status">${ph.redact.length ? `${ph.redact.length} blurred area${ph.redact.length > 1 ? "s" : ""}. Saved listing photos are always blurred there; the photo you took is kept as it was.` : canFaces() ? "" : "Draw a blur box over anything you don't want to show."}</div>
@@ -1070,12 +1113,13 @@ function setType(it, type) {
   }
 }
 const GUESS_SCHEMA = { type: "object", additionalProperties: false,
-  required: ["type", "title", "brand", "size", "colour", "material", "description", "confidence"],
+  required: ["type", "title", "brand", "size", "colour", "material", "description", "confidence", "turns"],
   properties: {
     type: { type: "string", enum: Object.keys(TEMPLATES) },
     title: { type: "string" }, brand: { type: "string" }, size: { type: "string" }, colour: { type: "string" },
     material: { type: "string" }, description: { type: "string" },
-    confidence: { type: "string", enum: ["low", "medium", "high"] } } };
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    turns: { type: "array", items: { type: "object", additionalProperties: false, required: ["n", "turn"], properties: { n: { type: "integer" }, turn: { type: "string", enum: ["0", "90", "180", "270"] } } } } } };
 let guessBusy = false;
 async function suggestListing(auto = false) {
   const it = S.cur; if (!it || it.example || guessBusy) return;
@@ -1093,9 +1137,14 @@ Work out what the item is.
 - title: a listing title of at most 80 characters, in the order Brand, item, key detail, colour, size, e.g. "Barbour Bedale Waxed Jacket Olive Green UK 40". Leave out anything you can't see.
 - brand, size, colour, material: only what you can actually read on a label or clearly see. Use an empty string when unsure; never invent a brand, size or fabric.
 - description: 2 to 4 short, plain sentences a buyer would find useful: what it is, style and features you can see (fastening, pockets, lining, hood), fabric and size from the label if legible, and any visible wear. No hype, emojis or hashtags, and leave out measurements (they are added separately).
-- confidence: how sure you are about the brand and item overall.`;
+- confidence: how sure you are about the brand and item overall.
+- turns: for each photo (numbered from 1 in the order given), how many degrees clockwise it needs rotating so the garment is upright (collar or waistband at the top, label text readable): "0", "90", "180" or "270".`;
     const r = await callClaude(prompt, blobs, GUESS_SCHEMA, "low");
-    it.guess = { source: "photos", ...r };
+    const { turns, ...g } = r;
+    it.guess = { source: "photos", ...g };
+    let turned = 0;
+    for (const q of turns || []) { const ph = pics[q.n - 1], deg = +q.turn; if (ph && [90, 180, 270].includes(deg)) { try { await rotatePhoto(it, ph, deg); turned++; } catch {} } }
+    if (turned && S.cur === it) { renderEditor(); toast(`Turned ${turned} photo${turned > 1 ? "s" : ""} upright. Use Rotate if that's wrong.`); }
     scheduleSave(it);
     if (S.cur === it && !auto) toast("Here's our guess");
   } catch (e) {
@@ -1157,11 +1206,11 @@ function bothUnits(cm, unit) {
 }
 function measureText(it) {
   const rows = [];
-  if (sizeOf(it)) rows.push(`🏷️ Size: ${sizeOf(it)}`);
-  if (fitOf(it)) rows.push(`👖 Fit: ${fitOf(it)}`);
+  if (sizeOf(it)) rows.push(`• Size: ${sizeOf(it)} 🏷️`);
+  if (fitOf(it)) rows.push(`• Fit: ${fitOf(it)} 👖`);
   for (const m of it.measures) {
     const v = bestValue(it, m); if (v.cm == null) continue;
-    rows.push(`📏 ${m.label}: ${bothUnits(v.cm, it.unit)}${v.kind === "est." ? ", approx." : ""}`);
+    rows.push(`• ${m.label}: ${bothUnits(v.cm, it.unit)}${v.kind === "est." ? ", approx." : ""} 📏`);
   }
   return rows.length ? `Measurements (laid flat):\n${rows.join("\n")}` : "";
 }
@@ -1432,6 +1481,7 @@ function renderSort() {
           <img src="${x.url}" alt="Photo ${i + 1}">
           <select data-sort-g="${i}" aria-label="Garment for photo ${i + 1}">${groups.map((gg, j) => `<option value="${gg}" ${gg === g ? "selected" : ""}>Garment ${j + 1}</option>`).join("")}<option value="new">New garment</option></select>
           <select data-sort-role="${i}" aria-label="What photo ${i + 1} shows">${roleOpts(x.role)}</select>
+          <div class="row2" style="gap:6px"><button class="btn ghost" style="flex:1;padding:6px;min-height:34px" data-sort-rot="${i}" data-deg="270" aria-label="Rotate photo ${i + 1} left">${ICON_ROT_L}</button><button class="btn ghost" style="flex:1;padding:6px;min-height:34px" data-sort-rot="${i}" data-deg="90" aria-label="Rotate photo ${i + 1} right">${ICON_ROT_R}</button></div>
         </div>`).join("")}</div>
       </section>`;
     }).join("")}
@@ -1451,7 +1501,7 @@ function photoThumb(url, max) {
   });
 }
 const SORT_SCHEMA = { type: "object", additionalProperties: false, required: ["photos", "groups"], properties: {
-  photos: { type: "array", items: { type: "object", additionalProperties: false, required: ["n", "group", "role"], properties: { n: { type: "integer" }, group: { type: "integer" }, role: { type: "string", enum: Object.keys(ROLES) } } } },
+  photos: { type: "array", items: { type: "object", additionalProperties: false, required: ["n", "group", "role", "turn"], properties: { n: { type: "integer" }, group: { type: "integer" }, role: { type: "string", enum: Object.keys(ROLES) }, turn: { type: "string", enum: ["0", "90", "180", "270"] } } } },
   groups: { type: "array", items: { type: "object", additionalProperties: false, required: ["group", "type"], properties: { group: { type: "integer" }, type: { type: "string", enum: Object.keys(TEMPLATES) } } } } } };
 async function sortWithClaude() {
   const st = S.sort; if (!st || st.busy) return;
@@ -1461,13 +1511,18 @@ async function sortWithClaude() {
     const blobs = await Promise.all(list.map(x => photoThumb(x.url, 512)));
     const prompt = `These ${list.length} photos are numbered 1 to ${list.length}, in the order given. Someone selling second-hand clothes took them, and they may show several different garments.
 Group the photos so each group shows one physical garment: its front, back, label or tag close-ups, details, or the garment being worn. Compare colour, fabric, pattern and features. A label close-up belongs with the garment photographed just before or after it, unless it clearly matches another garment.
-Number groups from 1 in the order they first appear. For every photo give its number n, its group and its role: front, back, sizelabel (a close-up of the size tag), material (a close-up of the fabric or care label), detail, or worn. For every group give the closest garment type.`;
+Number groups from 1 in the order they first appear. For every photo give its number n, its group and its role: front, back, sizelabel (a close-up of the size tag), material (a close-up of the fabric or care label), detail, or worn. For every photo also give turn: how many degrees clockwise it needs rotating so the garment is upright (collar or waistband at the top, label text readable), as "0", "90", "180" or "270". For every group give the closest garment type.`;
     const r = await callClaude(prompt, blobs, SORT_SCHEMA, "low");
     if (S.sort !== st) return;
-    for (const q of r.photos || []) { const x = list[q.n - 1]; if (x && Number.isInteger(q.group) && q.group > 0) { x.g = q.group; if (ROLES[q.role]) x.role = q.role; } }
+    let turned = 0;
+    for (const q of r.photos || []) {
+      const x = list[q.n - 1]; if (!x) continue;
+      if (Number.isInteger(q.group) && q.group > 0) { x.g = q.group; if (ROLES[q.role]) x.role = q.role; }
+      const deg = +q.turn; if ([90, 180, 270].includes(deg)) { try { await sortRotate(x, deg); turned++; } catch {} }
+    }
     st.types = {}; for (const q of r.groups || []) if (TEMPLATES[q.type]) st.types[q.group] = q.type;
     const n = sortGroups().length;
-    st.status = `Claude found ${n} garment${n > 1 ? "s" : ""}. Check below and fix anything it got wrong.`;
+    st.status = `Claude found ${n} garment${n > 1 ? "s" : ""}${turned ? ` and turned ${turned} photo${turned > 1 ? "s" : ""} upright` : ""}. Check below and fix anything it got wrong.`;
   } catch (e) { st.status = e.message || "Claude couldn't sort these photos."; st.err = true; }
   finally { st.busy = false; if (S.sort === st && S.view === "sort") renderSort(); }
 }
@@ -1498,7 +1553,14 @@ document.addEventListener("change", e => {
     renderSort();
   } else if (t.dataset.sortRole !== undefined) st.photos[+t.dataset.sortRole].role = t.value;
 });
+async function sortRotate(x, deg) {
+  const r = await rotateBlob(x.p.blob, deg);
+  x.p.blob = r.blob; x.p.w = r.w; x.p.h = r.h;
+  URL.revokeObjectURL(x.url); x.url = URL.createObjectURL(r.blob);
+}
 document.addEventListener("click", e => {
+  const rb = e.target.closest("[data-sort-rot]");
+  if (rb && S.sort) { const x = S.sort.photos[+rb.dataset.sortRot]; rb.disabled = true; sortRotate(x, +rb.dataset.deg).then(renderSort).catch(err => toast(err.message)); return; }
   const b = e.target.closest("[data-sort-act]"); if (!b || !S.sort) return;
   const act = b.dataset.sortAct;
   if (act === "create") createFromSort();
@@ -1655,6 +1717,11 @@ app.addEventListener("click", e => {
   else if (act === "saveone") saveListing(false);
   else if (act === "auto") autoPlace();
   else if (act === "faces") findFaces();
+  else if (act === "rot-l" || act === "rot-r") {
+    if (it.example) { toast("The example photos can't be rotated."); return; }
+    b.disabled = true;
+    rotatePhoto(it, ph, act === "rot-l" ? 270 : 90).then(() => { scheduleSave(it); renderEditor(); }).catch(e => { toast(e.message); b.disabled = false; });
+  }
   else if (act === "guess") { it.guessErr = ""; suggestListing(false); }
   else if (act === "use-all") useGuess("all");
   else if (act === "use-title") useGuess("title");
