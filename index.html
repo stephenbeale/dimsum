@@ -257,7 +257,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.14";
+const APP_VERSION = "2026-11-08.15";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -608,12 +608,8 @@ async function rotatePhoto(it, ph, deg) {
   ph.blob = r.blob; ph.w = r.w; ph.h = r.h;
   if (urlCache.has(ph.id)) { URL.revokeObjectURL(urlCache.get(ph.id)); urlCache.delete(ph.id); }
   imgCache.delete(old);
-  // Lines nobody has dragged on this photo are still in their upright starting places: put them back there after turning.
-  const untouched = !ph.linesMoved;
-  for (const [id, l] of Object.entries(ph.lines)) {
-    if (untouched) { const m = it.measures.find(m => m.id === id); if (m) { ph.lines[id] = defaultLine(it, m); continue; } }
-    l.a = turnPt(l.a, deg); l.b = turnPt(l.b, deg); if (typeof l.t === "number" && deg === 180) l.t = 1 - l.t;
-  }
+  // Lines and labels turn with the photo. A label keeps its place along its line, so its position (l.t) is unchanged.
+  for (const l of Object.values(ph.lines)) { l.a = turnPt(l.a, deg); l.b = turnPt(l.b, deg); }
   if (ph.ref) { ph.ref.a = turnPt(ph.ref.a, deg); ph.ref.b = turnPt(ph.ref.b, deg); }
   ph.redact = ph.redact.map(b => {
     const p1 = turnPt([b.x, b.y], deg), p2 = turnPt([b.x + b.w, b.y + b.h], deg);
@@ -668,7 +664,7 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
   it.measures.forEach((m, i) => {
     const l = !isLabelRole(ph.role) && ph.lines[m.id]; if (!l) return;
     const v = valueOf(m, ph);
-    lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? (opt.handles ? m.label + " · add" : m.label) : m.label + ": " + fmt(v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
+    lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? (opt.handles ? m.label + ": tap to add" : m.label) : m.label + ": " + fmt(v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
   });
   const V = opt.view || { x: 0, y: 0, w: W, h: H };
   if (tagsOf(it).length && !isLabelRole(ph.role)) {
@@ -982,7 +978,8 @@ function renderSide() {
 function renderQuick() {
   const el = $("#quickdims"), it = S.cur; if (!el || !it) return;
   const u = it.unit === "in" ? "in" : "cm";
-  el.innerHTML = it.measures.map((m, i) => `<label class="qd" for="q-${m.id}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span><span class="qn">${esc(m.label)}</span><input class="qnum" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" id="q-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="–" aria-label="${esc(m.label)} in ${u}"><span class="qu">${u}</span></label>`).join("");
+  el.innerHTML = it.measures.map((m, i) => `<label class="qd" for="q-${m.id}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span><span class="qn">${esc(m.label)}</span><input class="qnum" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" id="q-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="–" aria-label="${esc(m.label)} in ${u}"><span class="qu">${u}</span></label>`).join("")
+    + (curPhoto() && !isLabelRole(curPhoto().role) && Object.keys(curPhoto().lines).length ? `<button class="btn ghost" data-act="resetlines" style="min-height:44px">${I("prev")}Reset lines</button>` : "");
 }
 function updateValues() {
   renderDescPreview();
@@ -1810,7 +1807,10 @@ app.addEventListener("click", e => {
   else if (act === "rot-l" || act === "rot-r") {
     if (it.example) { toast("The example photos can't be rotated."); return; }
     b.disabled = true;
-    rotatePhoto(it, ph, act === "rot-l" ? 270 : 90).then(() => { scheduleSave(it); renderEditor(); }).catch(e => { toast(e.message); b.disabled = false; });
+    rotatePhoto(it, ph, act === "rot-l" ? 270 : 90).then(() => {
+      scheduleSave(it); renderEditor();
+      if (!ph.linesMoved && Object.keys(ph.lines).length) toast("Lines turned with the photo. If they're now sideways, tap Reset lines under the photo.");
+    }).catch(e => { toast(e.message); b.disabled = false; });
   }
   else if (act === "guess") { it.guessErr = ""; suggestListing(false); }
   else if (act === "use-all") useGuess("all");
