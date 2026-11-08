@@ -250,7 +250,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.12";
+const APP_VERSION = "2026-11-08.13";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -1056,7 +1056,8 @@ function setupCanvas() {
       const ddy = clamp(dy, -Math.min(d.a0[1], d.b0[1]), 1 - Math.max(d.a0[1], d.b0[1]));
       d.l.a = [d.a0[0] + ddx, d.a0[1] + ddy]; d.l.b = [d.b0[0] + ddx, d.b0[1] + ddy];
     } else {
-      const o = d.end === "a" ? d.a0 : d.b0; d.l[d.end] = [clamp(o[0] + dx, 0, 1), clamp(o[1] + dy, 0, 1)];
+      const o = d.end === "a" ? d.a0 : d.b0, R = d.l === ph.ref ? null : cropKeepRect(it, ph);
+      d.l[d.end] = R ? [clamp(o[0] + dx, R.x0, R.x1), clamp(o[1] + dy, R.y0, R.y1)] : [clamp(o[0] + dx, 0, 1), clamp(o[1] + dy, 0, 1)];
     }
     const m = d.id && it.measures.find(m => m.id === d.id);
     if (m && (d.end === "a" || d.end === "b" || d.end === "both") && Math.hypot(p.x - d.start.x, p.y - d.start.y) > 4) { m.touched = true; ph.linesMoved = true; }
@@ -1067,6 +1068,7 @@ function setupCanvas() {
     if (CV.drag.end === "crop") {
       const fr = cropFramesFor(it, ph); if (fr.length) { const r = fr[0].r; ph.crop = { cx: r.x + r.w / 2, cy: r.y + r.h / 2 }; }
     }
+    if (fitLinesToCrop(it, ph)) updateValues();
     CV.drag = null; draw(); scheduleSave(it);
   };
   cv.onpointerup = end; cv.onpointercancel = end;
@@ -1075,6 +1077,34 @@ function setupCanvas() {
 function cropFramesFor(it, ph) {
   if (S.exp.shape === "orig" || S.exp.crop === false || isLabelRole(ph.role)) return [];
   return platformsFor(S.exp.shape).map(plat => { const G = listingGeom(it, ph, plat, false); return { plat, r: cropRect(it, ph, G.OW / G.areaH) }; });
+}
+// The area every chosen platform keeps (the overlap of the crop frames), slightly inset.
+function cropKeepRect(it, ph) {
+  const fr = cropFramesFor(it, ph); if (!fr.length) return null;
+  let x0 = 0, y0 = 0, x1 = 1, y1 = 1;
+  for (const { r } of fr) { x0 = Math.max(x0, r.x); y0 = Math.max(y0, r.y); x1 = Math.min(x1, r.x + r.w); y1 = Math.min(y1, r.y + r.h); }
+  const ix = (x1 - x0) * .015, iy = (y1 - y0) * .015;
+  return { x0: x0 + ix, y0: y0 + iy, x1: x1 - ix, y1: y1 - iy };
+}
+// Slide each end of a line along the line until it is inside the rectangle (Liang-Barsky clipping).
+function clipLine(l, R) {
+  const dx = l.b[0] - l.a[0], dy = l.b[1] - l.a[1];
+  let t0 = 0, t1 = 1;
+  for (const [pp, q] of [[-dx, l.a[0] - R.x0], [dx, R.x1 - l.a[0]], [-dy, l.a[1] - R.y0], [dy, R.y1 - l.a[1]]]) {
+    if (pp === 0) { if (q < 0) return false; continue; }
+    const r = q / pp;
+    if (pp < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+  }
+  if (t0 === 0 && t1 === 1) return false;
+  const a = [l.a[0] + t0 * dx, l.a[1] + t0 * dy], b = [l.a[0] + t1 * dx, l.a[1] + t1 * dy];
+  l.a = a; l.b = b; return true;
+}
+function fitLinesToCrop(it, ph) {
+  if (!ph || isLabelRole(ph.role)) return false;
+  const R = cropKeepRect(it, ph); if (!R) return false;
+  let changed = false;
+  for (const l of Object.values(ph.lines)) if (clipLine(l, R)) changed = true;
+  return changed;
 }
 function drawCropFrames(ctx, it, ph, w, h) {
   const frames = cropFramesFor(it, ph); if (!frames.length) return;
@@ -1659,7 +1689,7 @@ app.addEventListener("change", e => {
   const ph = curPhoto();
   if (t.id === "f-strip") { S.exp.strip = t.checked; saveExp(); return; }
   if (t.id === "f-addm") { it.addMeasures = t.checked; renderDescPreview(); scheduleSave(it); return; }
-  if (t.id === "f-crop") { S.exp.crop = t.checked; saveExp(); renderSide(); draw(); return; }
+  if (t.id === "f-crop") { S.exp.crop = t.checked; saveExp(); if (fitLinesToCrop(it, ph)) scheduleSave(it); renderSide(); draw(); return; }
   if (t.id === "f-clean") { S.exp.clean = t.checked; saveExp(); renderSide(); return; }
   if (t.dataset.on) {
     const m = it.measures.find(m => m.id === t.dataset.on);
@@ -1727,7 +1757,7 @@ app.addEventListener("click", e => {
   if (b.dataset.sel) { S.sel = S.sel === b.dataset.sel ? null : b.dataset.sel; renderSide(); draw(); return; }
   if (b.dataset.size) { it.size = it.size === b.dataset.size ? "" : b.dataset.size; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.fit) { it.fit = it.fit === b.dataset.fit ? "" : b.dataset.fit; renderSide(); draw(); scheduleSave(it); return; }
-  if (b.dataset.shape) { S.exp.shape = b.dataset.shape; saveExp(); renderSide(); draw(); return; }
+  if (b.dataset.shape) { S.exp.shape = b.dataset.shape; saveExp(); if (ph && fitLinesToCrop(it, ph)) scheduleSave(it); renderSide(); draw(); return; }
   if (b.dataset.unit) { it.unit = b.dataset.unit; renderEditor(); scheduleSave(it); return; }
   if (b.dataset.del) { it.measures = it.measures.filter(m => m.id !== b.dataset.del); it.photos.forEach(p => delete p.lines[b.dataset.del]); S.sel = null; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.addm !== undefined) {
@@ -1776,6 +1806,9 @@ app.addEventListener("click", e => {
 });
 document.addEventListener("visibilitychange", () => { if (document.hidden) flushSave(); });
 
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
 S.example = makeExample();
 render();
 initStore();
