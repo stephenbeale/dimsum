@@ -180,14 +180,14 @@ const COLORS = ["#ffd23f", "#3ddbd9", "#ff6b6b", "#a593ff", "#7bd88f", "#ff9f43"
 const REF_COLOR = "#ffffff";
 const ROLES = { front: "Front", back: "Back", label: "Label", detail: "Detail", worn: "Worn" };
 
-const T = (key, label, a, b, how) => ({ key, label, a, b, how });
+const T = (key, label, a, b, how, optional = false) => ({ key, label, a, b, how, optional });
 const TEMPLATES = {
   coat: { name: "Coat / jacket", measures: [
-    T("length", "Length", [.5,.10], [.5,.92], "Centre back, from the collar seam straight down to the hem."),
     T("p2p", "Pit to pit", [.27,.33], [.73,.33], "Straight across the chest, armpit seam to armpit seam. Double it for the chest."),
-    T("shoulder", "Shoulders", [.31,.16], [.69,.16], "Across the back, shoulder seam to shoulder seam."),
+    T("length", "Length", [.5,.10], [.5,.92], "Centre back, from the collar seam straight down to the hem."),
     T("sleeve", "Sleeve", [.69,.16], [.86,.66], "From the shoulder seam along the top of the sleeve to the cuff edge."),
-    T("hem", "Hem width", [.26,.92], [.74,.92], "Straight across the bottom edge, laid flat."),
+    T("shoulder", "Shoulders", [.31,.16], [.69,.16], "Across the back, shoulder seam to shoulder seam.", true),
+    T("hem", "Hem width", [.26,.92], [.74,.92], "Straight across the bottom edge, laid flat.", true),
   ]},
   shirt: { name: "Shirt / T-shirt", measures: [
     T("length", "Length", [.5,.08], [.5,.92], "From the top of the collar seam at the back down to the hem."),
@@ -363,7 +363,7 @@ function defaultLine(it, m) {
 }
 function defaultLines(it) { const o = {}; for (const m of it.measures) o[m.id] = defaultLine(it, m); return o; }
 function freshMeasures(type) {
-  return TEMPLATES[type].measures.map(t => ({ id: uid(), key: t.key, label: t.label, actual: null, touched: false }));
+  return TEMPLATES[type].measures.filter(t => !t.optional).map(t => ({ id: uid(), key: t.key, label: t.label, actual: null, touched: false }));
 }
 
 // ---------- data shape ----------
@@ -509,7 +509,7 @@ async function ingest(files, target) {
       photos.push(p);
     }
     if (isNew) {
-      const ni = { id: uid(), name: "Untitled garment", type: "coat", unit: "cm", notes: "", measures: freshMeasures("coat"), photos, createdAt: Date.now(), updatedAt: Date.now() };
+      const ni = { id: uid(), name: "Untitled garment", type: "coat", unit: "in", notes: "", measures: freshMeasures("coat"), photos, createdAt: Date.now(), updatedAt: Date.now() };
       ni.photos[0].lines = defaultLines(ni);
       await writeItem(ni);
       setStatus("");
@@ -621,14 +621,14 @@ function drawLabel(g, W, H) {
 function makeExample() {
   const N = 1500, mk = (w, h, fn) => { const c = document.createElement("canvas"); c.width = w; c.height = h; fn(c.getContext("2d")); return c.toDataURL("image/jpeg", .85); };
   const front = mk(N, N, g => drawCoat(g, N, false)), back = mk(N, N, g => drawCoat(g, N, true)), label = mk(1200, 1500, g => drawLabel(g, 1200, 1500));
-  const t = TEMPLATES.coat.measures;
-  const vals = { length: 98, p2p: 58, shoulder: 46, sleeve: 64, hem: 57 };
+  const t = TEMPLATES.coat.measures.filter(m => !m.optional);
+  const vals = { p2p: 23 * 2.54, length: 38.5 * 2.54, sleeve: 25 * 2.54 };
   const measures = t.map(m => ({ id: "ex-" + m.key, key: m.key, label: m.label, actual: vals[m.key], touched: true }));
   const lines = {}; t.forEach(m => lines["ex-" + m.key] = { a: [...m.a], b: [...m.b] });
-  return { id: "example", example: true, name: "Navy wool overcoat", type: "coat", unit: "cm", notes: "Example only: the photos are drawings.", createdAt: 0, updatedAt: 0, measures,
+  return { id: "example", example: true, name: "Navy wool overcoat", type: "coat", unit: "in", notes: "Example only: the photos are drawings.", createdAt: 0, updatedAt: 0, measures,
     photos: [
       { id: "exf", role: "front", url: front, w: N, h: N, lines, ref: null, redact: [] },
-      { id: "exb", role: "back", url: back, w: N, h: N, lines: { "ex-shoulder": { a: [.31,.16], b: [.69,.16] }, "ex-length": { a: [.5,.11], b: [.5,.92] } }, ref: null, redact: [] },
+      { id: "exb", role: "back", url: back, w: N, h: N, lines: { "ex-length": { a: [.5,.11], b: [.5,.92] } }, ref: null, redact: [] },
       { id: "exl", role: "label", url: label, w: 1200, h: 1500, lines: {}, ref: null, redact: [] },
     ] };
 }
