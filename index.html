@@ -150,6 +150,12 @@ label.check input{width:18px;height:18px}
 .emptystage{display:grid;gap:12px;justify-items:center;padding:40px 16px;text-align:center;color:var(--muted)}
 .offer{border-left:4px solid var(--tape);padding:8px 10px;background:var(--sunk);border-radius:6px;font-size:13px}
 #status{margin:0 0 12px}
+.lbl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:-4px}
+.guess{border:1px solid var(--line);border-left:4px solid var(--tape);border-radius:8px;padding:10px 12px;display:grid;gap:8px;background:var(--sunk);font-size:14px;min-width:0}
+.guess .gh{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.guess dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:0}
+.guess dt{color:var(--muted)} .guess dd{margin:0;overflow-wrap:anywhere}
+.guess p{margin:0;white-space:pre-wrap}
 .settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:28px}
 </style>
 
@@ -203,12 +209,12 @@ const TEMPLATES = {
     T("sleeve", "Sleeve", [.69,.15], [.86,.70], "Shoulder seam to the end of the cuff."),
   ]},
   trousers: { name: "Trousers / jeans", measures: [
-    T("waist", "Waist (flat)", [.30,.07], [.70,.07], "Across the top of the waistband, laid flat. Double it for the full waist."),
-    T("rise", "Front rise", [.5,.07], [.5,.36], "From the crotch seam up to the top of the waistband."),
-    T("inseam", "Inseam", [.52,.37], [.63,.95], "From the crotch seam down the inside leg to the hem."),
-    T("outseam", "Outseam", [.30,.07], [.33,.95], "From the top of the waistband down the outside leg to the hem."),
-    T("thigh", "Thigh", [.28,.41], [.49,.41], "Across one leg, about 2 cm below the crotch."),
-    T("opening", "Leg opening", [.60,.95], [.75,.95], "Across the leg opening at the hem."),
+    T("waist", "Waist", [.30,.07], [.70,.07], "Lay it flat with the button done up, measure straight across the top of the waistband, then double it. 16 in across is a 32 in waist."),
+    T("inseam", "Leg", [.52,.37], [.63,.95], "The inside leg: from the crotch seam down the inner seam to the hem."),
+    T("rise", "Front rise", [.5,.07], [.5,.36], "From the crotch seam up to the top of the waistband.", true),
+    T("outseam", "Outseam", [.30,.07], [.33,.95], "From the top of the waistband down the outside leg to the hem.", true),
+    T("thigh", "Thigh", [.28,.41], [.49,.41], "Across one leg, about 2 cm below the crotch.", true),
+    T("opening", "Leg opening", [.60,.95], [.75,.95], "Across the leg opening at the hem.", true),
   ]},
   skirt: { name: "Skirt", measures: [
     T("waist", "Waist (flat)", [.30,.08], [.70,.08], "Across the waistband, laid flat. Double it for the full waist."),
@@ -227,6 +233,8 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
+const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
+const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const PRESETS = {
   card: { label: "Bank card (long edge)", len: 8.56 },
   a4l: { label: "A4 paper (long edge)", len: 29.7 },
@@ -250,7 +258,9 @@ function setKey(v) { try { v ? localStorage.setItem(KEY_NAME, v) : localStorage.
 S.canImages = !!getKey();
 const API_VERSION = "2026-10-21";
 function blobToB64(blob) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(r.error); r.readAsDataURL(blob); }); }
-async function callClaude(prompt, blob, schema, effort = "medium") {
+async function callClaude(prompt, blobs, schema, effort = "medium") {
+  const imgs = Array.isArray(blobs) ? blobs : [blobs];
+  const imageBlocks = await Promise.all(imgs.map(async b => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: await blobToB64(b) } })));
   const key = getKey(); if (!key) throw new Error("Add your Claude API key on the wardrobe page first.");
   let res;
   try {
@@ -262,7 +272,7 @@ async function callClaude(prompt, blob, schema, effort = "medium") {
         model: "claude-opus-5-5", max_tokens: 16000, fallbacks: "default",
         output_config: { effort, format: { type: "json_schema", schema } },
         messages: [{ role: "user", content: [
-          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: await blobToB64(blob) } },
+          ...imageBlocks,
           { type: "text", text: prompt } ] }],
       }),
     });
@@ -381,9 +391,9 @@ function normalize(raw) {
 }
 function toDoc(it) {
   return {
-    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
+    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", guess: it.guess || null, fit: it.fit || "", createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
-    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked })),
+    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "" })),
   };
 }
 const toLocal = it => { const d = toDoc(it); d.id = it.id; d.photos.forEach((p, i) => p.blob = it.photos[i].blob || null); return d; };
@@ -504,16 +514,20 @@ async function ingest(files, target) {
     for (let i = 0; i < files.length; i++) {
       setStatus(files.length > 1 ? `Preparing photo ${i + 1} of ${files.length}…` : "Preparing photo…");
       const { blob, w, h } = await prepPhoto(files[i]);
-      const p = { id: uid(), role: nextRole(it, i), w, h, lines: {}, ref: null, redact: [], fresh: true };
+      const p = { id: uid(), role: nextRole(it, i), w, h, lines: {}, ref: null, redact: [], fresh: true, fileName: files[i].name || "" };
       p.blob = blob;
       photos.push(p);
     }
     if (isNew) {
       const ni = { id: uid(), name: "Untitled garment", type: "coat", unit: "in", notes: "", measures: freshMeasures("coat"), photos, createdAt: Date.now(), updatedAt: Date.now() };
       ni.photos[0].lines = defaultLines(ni);
+      const fg = guessFromNames(files.map(f => f.name || ""));
+      if (fg && fg !== ni.type) setType(ni, fg);
+      if (fg) ni.guess = { source: "name", type: fg };
       await writeItem(ni);
       setStatus("");
       open(ni.id, true, ni);
+      if (S.canImages) suggestListing(true);
     } else {
       if (!it.photos.length) photos[0].lines = defaultLines(it);
       const first = it.photos.length;
@@ -553,6 +567,13 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
     const v = valueOf(m, ph);
     lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? m.label : m.label + "  " + fmt(v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
   });
+  if (fitOf(it) && ph.role !== "label") {
+    ctx.save(); ctx.font = `700 ${12.5 * k}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textBaseline = "middle";
+    const t = fitOf(it) + " fit", pw = ctx.measureText(t).width + 16 * k, ph2 = 24 * k;
+    roundRect(ctx, 8 * k, 8 * k, pw, ph2, 5 * k); ctx.fillStyle = "rgba(255,255,255,.94)"; ctx.fill();
+    ctx.lineWidth = 1.5 * k; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.stroke();
+    ctx.fillStyle = "#111"; ctx.fillText(t, 16 * k, 8 * k + ph2 / 2 + .5 * k); ctx.restore();
+  }
   if (ph.ref && opt.handles) lines.push({ l: ph.ref, color: REF_COLOR, id: "ref", ref: true, text: "Ref " + fmt(ph.ref.len, it.unit) });
   const pills = [];
   for (const L of lines) {
@@ -722,7 +743,7 @@ function renderSide() {
         ${ph ? `<input type="checkbox" class="mon" data-on="${m.id}" ${ph.lines[m.id] ? "checked" : ""} aria-label="Show ${esc(m.label)} on this photo" title="Show on this photo">` : ""}
         <span class="sw" style="background:${COLORS[i % COLORS.length]}"></span>
         <button class="mname" data-sel="${m.id}" aria-expanded="${sel}">${esc(m.label)}</button>
-        <input class="mnum" type="number" inputmode="decimal" step="0.1" min="0" id="act-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${est ? "≈ " + inUnit(est, u) : ""}" aria-label="${esc(m.label)} in ${u}"><span class="munit">${u}</span></div>
+        <input class="mnum" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" id="act-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${est ? "≈ " + inUnit(est, u) : ""}" aria-label="${esc(m.label)} in ${u}"><span class="munit">${u}</span></div>
       ${sel ? `<div class="mbody">
         ${how ? `<span class="how">${esc(how)}</span>` : ""}
         <label>Name <input type="text" id="lbl-${m.id}" data-lbl="${m.id}" value="${esc(m.label)}"></label>
@@ -751,6 +772,7 @@ function renderSide() {
       <h2>Measurements <span style="text-transform:none;letter-spacing:0;font-weight:500">laid flat</span></h2>
       ${ph && S.canImages ? `<div class="row2"><button class="btn" data-act="auto" id="btn-auto">Place lines with Claude</button></div><div class="ai-status" id="ai-status">Sends this ${esc(role)} photo to Claude, which moves the ticked lines onto the seams. Check them before you save.</div>` : ph ? `<div class="note">Drag the dots onto the seams. Add a Claude API key on the wardrobe page to have Claude place them for you.</div>` : ""}
       <div class="mlist">${mrows || `<div class="note" style="padding:6px">No measurements yet. Add one below.</div>`}</div>
+      ${FITS[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Fit</span><div class="seg" role="group" aria-label="Fit">${FITS[it.type].map(f => `<button data-fit="${f}" aria-pressed="${it.fit === f}">${f}</button>`).join("")}</div></div>` : ""}
       <div class="chips">${tpl.map(t => `<button data-addm="${t.key}">+ ${esc(t.label)}</button>`).join("")}<button data-addm="">+ Custom</button></div>
       <div class="note">Values belong to the garment; the tick shows each line on this photo. Tap a name to see where to measure.</div>
     </section>
@@ -758,16 +780,31 @@ function renderSide() {
       <h2>Listing photos</h2>
       <div class="seg" role="group" aria-label="Photo shape">${shapes.map(([k, l]) => `<button data-shape="${k}" aria-pressed="${S.exp.shape === k}">${l}</button>`).join("")}</div>
       <label class="check"><input type="checkbox" id="f-strip" ${S.exp.strip ? "checked" : ""}> Add a measurements list under photos that show lines</label>
-      <div class="row2">
-        ${it.photos.length ? `<button class="btn primary" data-act="saveall">Save all ${it.photos.length} photo${it.photos.length > 1 ? "s" : ""}</button><button class="btn" data-act="saveone">Save this one</button>` : ""}
-        <button class="btn" data-act="copy">Copy for description</button>
-      </div>
+      ${it.photos.length ? `<div class="row2">
+        <button class="btn primary" data-act="saveall">Save ${it.photos.length > 1 ? `all ${it.photos.length} photos` : "photo"} to phone</button>
+        ${it.photos.length > 1 ? `<button class="btn" data-act="saveone">Save this one</button>` : ""}
+        ${canShareFiles() ? `<button class="btn ghost" data-act="shareall">Share…</button>` : ""}
+      </div>` : ""}
       <div class="row2" id="ready" hidden></div>
-      <div class="note">Portrait suits Vinted, square suits eBay. The whole garment stays in frame, saved at 1600 px wide. On a phone, saving opens the share sheet: choose Save to Photos, or send them straight to the Vinted or eBay app.</div>
+      <div class="note">Portrait suits Vinted, square suits eBay. The whole garment stays in frame, saved at 1600 px wide, into your Downloads, where the Vinted and eBay photo pickers can find them.</div>
+      <span class="lbl">Then list it</span>
+      <div class="row2">
+        <a class="btn" href="${appLink("vinted")}" target="_blank" rel="noopener" data-golist="vinted">Open Vinted</a>
+        <a class="btn" href="${appLink("ebay")}" target="_blank" rel="noopener" data-golist="ebay">Open eBay</a>
+      </div>
+      <div class="row2">
+        <button class="btn ghost" data-act="copytitle">Copy title</button>
+        <button class="btn ghost" data-act="copy">Copy description</button>
+      </div>
+      <div class="note">Opening Vinted or eBay copies the description and measurements first, ready to paste. Then add the photos you saved.</div>
     </section>
     <section class="panel">
-      <h2>Notes</h2>
-      <textarea id="f-notes" placeholder="Brand, size label, fabric, condition…">${esc(it.notes || "")}</textarea>
+      <h2>Listing text</h2>
+      ${guessHTML(it)}
+      <label class="lbl" for="f-desc">Description</label>
+      <textarea id="f-desc" placeholder="What buyers read: brand, size, colour, fabric, condition…">${esc(it.description || "")}</textarea>
+      <label class="lbl" for="f-notes">Private notes</label>
+      <textarea id="f-notes" placeholder="Just for you: where you bought it, price paid…">${esc(it.notes || "")}</textarea>
       ${it.example ? "" : `<div class="row2"><button class="btn ghost danger" data-act="delete" id="btn-del">Delete garment</button></div>`}
     </section>
     ${ph ? `<details class="panel" ${ph.ref ? "open" : ""}>
@@ -891,22 +928,129 @@ function draw() {
   }
 }
 
-// ---------- tools ----------
-function summaryText(it) {
-  const rows = it.measures.map(m => ({ m, v: bestValue(it, m) })).filter(r => r.v.cm != null)
-    .map(({ m, v }) => `${m.label}: ${n1(v.cm)} cm (${n1(v.cm / 2.54)} in)${v.kind === "est." ? ", approx." : ""}`);
-  return rows.length ? `Measurements, laid flat:\n${rows.join("\n")}` : "";
+// ---------- guesses: type from file names; title, type and description from the photos ----------
+const NAME_WORDS = [
+  ["coat", /coat|jacket|blazer|parka|anorak|gilet|bomber|trench|mac\b|waxed|puffer|overshirt/],
+  ["knit", /jumper|sweater|cardigan|knit|hoodie|sweatshirt|pullover|fleece/],
+  ["trousers", /trouser|jeans?\b|denim|chino|pants|slacks|shorts|joggers|cords/],
+  ["dress", /dress|gown|pinafore/],
+  ["skirt", /skirt/],
+  ["shirt", /shirt|tee\b|t-shirt|tshirt|blouse|polo|top\b|vest|tank/],
+];
+function guessFromNames(names) {
+  const txt = names.join(" ").toLowerCase().replace(/[_.]+/g, " ");
+  for (const [type, re] of NAME_WORDS) if (re.test(txt)) return type;
+  return null;
 }
-async function copyText() {
-  const txt = summaryText(S.cur);
-  if (!txt) { toast("Type in at least one measurement first."); return; }
-  try { await navigator.clipboard.writeText(txt); toast("Copied. Paste it into your listing description."); }
-  catch {
-    const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select();
-    let ok = false; try { ok = document.execCommand("copy"); } catch {} ta.remove();
-    toast(ok ? "Copied. Paste it into your listing description." : "Copy isn't allowed here. Select the values in the list instead.");
+function setType(it, type) {
+  it.type = type;
+  if (!it.measures.some(m => m.touched || m.actual > 0)) {
+    it.measures = freshMeasures(type);
+    it.photos.forEach((p, i) => p.lines = i === 0 ? defaultLines(it) : {});
   }
 }
+const GUESS_SCHEMA = { type: "object", additionalProperties: false,
+  required: ["type", "title", "brand", "size", "colour", "material", "description", "confidence"],
+  properties: {
+    type: { type: "string", enum: Object.keys(TEMPLATES) },
+    title: { type: "string" }, brand: { type: "string" }, size: { type: "string" }, colour: { type: "string" },
+    material: { type: "string" }, description: { type: "string" },
+    confidence: { type: "string", enum: ["low", "medium", "high"] } } };
+let guessBusy = false;
+async function suggestListing(auto = false) {
+  const it = S.cur; if (!it || it.example || guessBusy) return;
+  if (!S.canImages) { toast("Add your Claude API key on the wardrobe page first."); return; }
+  if (!it.photos.length) { toast("Add a photo first."); return; }
+  guessBusy = true; renderGuess();
+  try {
+    const order = ["label", "front", "back", "detail", "worn"];
+    const pics = [...it.photos].sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role)).slice(0, 4);
+    const blobs = await Promise.all(pics.map(p => photoBlobForClaude(p, 1280).then(r => r.blob)));
+    const names = it.photos.map(p => p.fileName).filter(Boolean);
+    const prompt = `You are helping someone sell a second-hand clothing item on Vinted and eBay (UK). The photos show it in this order: ${pics.map(p => p.role).join(", ")}.${names.length ? ` The original file names were: ${names.join(", ")}.` : ""}
+Work out what the item is.
+- type: the closest category from the list.
+- title: a listing title of at most 80 characters, in the order Brand, item, key detail, colour, size, e.g. "Barbour Bedale Waxed Jacket Olive Green UK 40". Leave out anything you can't see.
+- brand, size, colour, material: only what you can actually read on a label or clearly see. Use an empty string when unsure; never invent a brand, size or fabric.
+- description: 2 to 4 short, plain sentences a buyer would find useful: what it is, style and features you can see (fastening, pockets, lining, hood), fabric and size from the label if legible, and any visible wear. No hype, emojis or hashtags, and leave out measurements (they are added separately).
+- confidence: how sure you are about the brand and item overall.`;
+    const r = await callClaude(prompt, blobs, GUESS_SCHEMA, "low");
+    it.guess = { source: "photos", ...r };
+    scheduleSave(it);
+    if (S.cur === it && !auto) toast("Here's our guess");
+  } catch (e) {
+    if (S.cur === it) { it.guessErr = e.message; }
+  } finally { guessBusy = false; if (S.cur === it) renderGuess(); }
+}
+function guessHTML(it) {
+  if (it.example) return "";
+  const g = it.guess, busy = guessBusy;
+  const canAsk = S.canImages && it.photos.length;
+  const ask = canAsk ? `<button class="btn" data-act="guess" ${busy ? "disabled" : ""}>${busy ? "Looking at your photos…" : g && g.source === "photos" ? "Guess again" : "Suggest title and description"}</button>` : "";
+  if (!g) return `<div id="guessbox">${ask ? `<div class="row2">${ask}</div><div class="note">Claude looks at the photos (the label too, if you've added it) and suggests a title, type and description.</div>` : `<div class="note">Add a Claude API key on the wardrobe page and Dimsum can suggest a title and description from your photos.</div>`}${it.guessErr ? `<div class="ai-status err">${esc(it.guessErr)}</div>` : ""}</div>`;
+  if (g.source === "name") {
+    return `<div id="guessbox" class="guess"><span class="gh">Our guess, from the file name</span>
+      <div>${esc(TEMPLATES[g.type].name)}${it.type === g.type ? " (in use)" : ""}</div>
+      <div class="row2">${it.type !== g.type ? `<button class="btn" data-act="use-type">Use this type</button>` : ""}${ask}</div></div>`;
+  }
+  const facts = [["Type", TEMPLATES[g.type]?.name], ["Brand", g.brand], ["Size", g.size], ["Colour", g.colour], ["Material", g.material]].filter(([, v]) => v);
+  return `<div id="guessbox" class="guess">
+    <span class="gh">Our guess${g.confidence ? `, ${esc(g.confidence)} confidence` : ""}</span>
+    ${g.title ? `<strong>${esc(g.title)}</strong>` : ""}
+    <dl>${facts.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+    ${g.description ? `<p>${esc(g.description)}</p>` : ""}
+    <div class="row2">
+      <button class="btn primary" data-act="use-all">Use all</button>
+      ${g.title && g.title !== it.name ? `<button class="btn" data-act="use-title">Use title</button>` : ""}
+      ${g.type !== it.type ? `<button class="btn" data-act="use-type">Use type</button>` : ""}
+      ${g.description && g.description !== it.description ? `<button class="btn" data-act="use-desc">Use description</button>` : ""}
+      ${ask}
+    </div>
+    ${it.guessErr ? `<div class="ai-status err">${esc(it.guessErr)}</div>` : ""}
+    <div class="note">Check it against the label before you list. Brand and size are left blank when they can't be read.</div>
+  </div>`;
+}
+function renderGuess() {
+  const box = $("#guessbox"); if (!box || !S.cur) return;
+  const tmp = document.createElement("div"); tmp.innerHTML = guessHTML(S.cur);
+  box.replaceWith(tmp.firstElementChild);
+}
+function useGuess(what) {
+  const it = S.cur, g = it.guess; if (!g) return;
+  if ((what === "title" || what === "all") && g.title) it.name = g.title;
+  if ((what === "desc" || what === "all") && g.description) it.description = g.description;
+  if ((what === "type" || what === "all") && g.type && g.type !== it.type) setType(it, g.type);
+  it.isNew = false; scheduleSave(it); renderEditor();
+  toast("Added. You can still edit it.");
+}
+
+// ---------- tools ----------
+function summaryText(it) {
+  const m = measureText(it), d = (it.description || "").trim();
+  return [d, m].filter(Boolean).join("\n\n");
+}
+function measureText(it) {
+  const rows = it.measures.map(m => ({ m, v: bestValue(it, m) })).filter(r => r.v.cm != null)
+    .map(({ m, v }) => `${m.label}: ${it.unit === "cm" ? `${n1(v.cm)} cm (${n1(v.cm / 2.54)} in)` : `${n1(v.cm / 2.54)} in (${n1(v.cm)} cm)`}${v.kind === "est." ? ", approx." : ""}`);
+  if (fitOf(it)) rows.unshift(`Fit: ${fitOf(it)}`);
+  return rows.length ? `Measurements, laid flat:\n${rows.join("\n")}` : "";
+}
+function copyString(txt, ok, empty) {
+  if (!txt) { toast(empty); return false; }
+  const fallback = () => {
+    const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select();
+    let done = false; try { done = document.execCommand("copy"); } catch {} ta.remove();
+    toast(done ? ok : "Copy isn't allowed here. Select the text and copy it yourself.");
+  };
+  try { navigator.clipboard.writeText(txt).then(() => toast(ok), fallback); } catch { fallback(); }
+  return true;
+}
+function copyText() { copyString(summaryText(S.cur), "Copied. Paste it into your listing description.", "Add a description or a measurement first."); }
+document.addEventListener("click", e => {
+  const a = e.target.closest("a[data-golist]"); if (!a || !S.cur) return;
+  const txt = summaryText(S.cur);
+  if (txt) copyString(txt, `Description copied. Paste it into ${a.dataset.golist === "ebay" ? "eBay" : "Vinted"}.`, "");
+});
 function avgColor(img) {
   try { const c = document.createElement("canvas"); c.width = c.height = 1; const g = c.getContext("2d"); g.drawImage(img, 0, 0, 1, 1); const d = g.getImageData(0, 0, 1, 1).data; return `rgb(${d[0]},${d[1]},${d[2]})`; }
   catch { return "#d9d9d9"; }
@@ -932,7 +1076,7 @@ async function renderListing(it, ph) {
   if (stripH) {
     g.fillStyle = "#16202a"; g.fillRect(0, areaH, OW, stripH);
     g.fillStyle = "#97a3b0"; g.font = `600 ${9 * k}px Archivo, Arial, sans-serif`; g.textBaseline = "alphabetic";
-    g.fillText("MEASUREMENTS, LAID FLAT", 16 * k, areaH + 18 * k);
+    g.fillText("MEASUREMENTS, LAID FLAT" + (fitOf(it) ? " · " + fitOf(it).toUpperCase() + " FIT" : ""), 16 * k, areaH + 18 * k);
     const colW = (OW - 32 * k) / cols;
     rows.forEach((r, n) => {
       const x = 16 * k + (n % cols) * colW, y = areaH + 22 * k + Math.floor(n / cols) * rowH + 17 * k;
@@ -950,7 +1094,20 @@ function fileName(it, ph, idx) {
   const sameRole = it.photos.filter(p => p.role === ph.role).length > 1;
   return `${name}-${idx + 1}-${ph.role}${sameRole ? "-" + (idx + 1) : ""}-${{ "45": "portrait", "11": "square", orig: "original" }[S.exp.shape]}.jpg`;
 }
-async function saveListing(all) {
+function canShareFiles() {
+  try { return !!(navigator.canShare && navigator.canShare({ files: [new File(["x"], "x.jpg", { type: "image/jpeg" })] })); } catch { return false; }
+}
+const LIST_URLS = { vinted: "https://www.vinted.co.uk/items/new", ebay: "https://www.ebay.co.uk/sl/sell" };
+const LIST_APPS = { vinted: "fr.vinted", ebay: "com.ebay.mobile" };
+function appLink(which) {
+  const url = LIST_URLS[which];
+  if (/Android/i.test(navigator.userAgent)) {
+    const u = new URL(url);
+    return `intent://${u.host}${u.pathname}#Intent;scheme=https;package=${LIST_APPS[which]};S.browser_fallback_url=${encodeURIComponent(url)};end`;
+  }
+  return url;
+}
+async function saveListing(all, mode = "save") {
   const it = S.cur;
   const list = all ? it.photos.map((p, i) => [p, i]) : [[curPhoto(), S.pi]];
   setStatus(list.length > 1 ? `Making ${list.length} listing photos…` : "Making the listing photo…");
@@ -958,31 +1115,34 @@ async function saveListing(all) {
   try { for (const [ph, i] of list) files.push(new File([await renderListing(it, ph)], fileName(it, ph, i), { type: "image/jpeg" })); }
   catch (e) { setStatus(""); toast(e.message || "Couldn't make the photos."); return; }
   setStatus("");
-  await deliver(files);
+  if (mode === "share") await shareFiles(files); else downloadFiles(files);
 }
-async function deliver(files) {
-  if (navigator.canShare && navigator.canShare({ files })) {
-    try { await navigator.share({ files }); S.ready = null; renderReady(); return; }
-    catch (e) {
-      if (e.name === "AbortError") return;
-      if (e.name === "NotAllowedError") { S.ready = files; S.readyLinks = false; renderReady(); return; }
-    }
+async function shareFiles(files) {
+  try { await navigator.share({ files }); S.ready = null; renderReady(); }
+  catch (e) {
+    if (e.name === "AbortError") return;
+    S.ready = files; S.readyMode = "share"; renderReady();
   }
-  if (files.length === 1) {
-    const a = document.createElement("a"); a.href = URL.createObjectURL(files[0]); a.download = files[0].name;
-    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 20000);
-    toast("Saved to Downloads"); return;
-  }
-  S.ready = files; S.readyLinks = true; renderReady();
+}
+function downloadOne(f) {
+  const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+async function downloadFiles(files) {
+  for (let i = 0; i < files.length; i++) { downloadOne(files[i]); if (i < files.length - 1) await new Promise(r => setTimeout(r, 500)); }
+  S.ready = files.length > 1 ? files : null; S.readyMode = "links"; renderReady();
+  toast(files.length > 1 ? `Saving ${files.length} photos to Downloads` : "Saved to Downloads");
 }
 function renderReady() {
   const el = $("#ready"); if (!el) return;
   el.hidden = !S.ready;
-  if (S.ready && S.readyLinks) {
-    el.innerHTML = S.ready.map(f => `<a class="btn" href="${URL.createObjectURL(f)}" download="${esc(f.name)}">Download ${esc(f.name.replace(/^.*?-\d+-/, "").replace(/-(portrait|square|original)\.jpg$/, ""))}</a>`).join("") + `<span class="note">Your photos are ready. Download each one.</span>`;
+  if (!S.ready) { el.innerHTML = ""; return; }
+  if (S.readyMode === "links") {
+    el.innerHTML = `<span class="note" style="flex-basis:100%">If your browser asked about downloading several files, allow it. Missing one? Tap it to save it again:</span>` +
+      S.ready.map((f, i) => `<button class="btn ghost" data-redl="${i}">${esc(f.name.replace(/^.*?-\d+-/, "").replace(/-(portrait|square|original)\.jpg$/, ""))}</button>`).join("");
     return;
   }
-  if (S.ready) el.innerHTML = `<button class="btn primary" data-act="shareready">Share ${S.ready.length} photo${S.ready.length > 1 ? "s" : ""}</button> <span class="note">Your photos are ready. Tap to open the share sheet, then Save to Photos or pick Vinted.</span>`;
+  el.innerHTML = `<button class="btn primary" data-act="shareready">Share ${S.ready.length} photo${S.ready.length > 1 ? "s" : ""}</button> <span class="note">Your photos are ready. Tap to open the share sheet.</span>`;
 }
 async function photoBlobForClaude(ph, max = 1280) {
   const img = await loadImg(ph);
@@ -1096,13 +1256,11 @@ app.addEventListener("change", e => {
   }
   if (t.id === "f-role") { ph.role = t.value; renderEditor(); scheduleSave(it); return; }
   if (t.id === "f-type") {
-    it.type = t.value;
-    if (!it.measures.some(m => m.touched || m.actual > 0)) {
-      it.measures = freshMeasures(it.type);
-      it.photos.forEach((p, i) => p.lines = i === 0 ? defaultLines(it) : {});
-    }
+    setType(it, t.value);
     S.sel = null; renderSide(); draw(); scheduleSave(it);
-  } else if (t.id === "f-ref") {
+    return;
+  }
+  if (t.id === "f-ref") {
     const p = t.value;
     if (!p) ph.ref = null;
     else if (ph.ref) { ph.ref.preset = p; ph.ref.len = PRESETS[p].len ?? ph.ref.len; }
@@ -1110,14 +1268,22 @@ app.addEventListener("change", e => {
     S.sel = ph.ref ? "ref" : null; renderSide(); draw(); scheduleSave(it);
   }
 });
+function parseNum(str) { const v = parseFloat(String(str).replace(",", ".").replace(/[^0-9.]/g, "")); return v > 0 ? v : null; }
+function setActual(it, t) {
+  const m = it.measures.find(m => m.id === t.dataset.actVal); if (!m) return;
+  const v = parseNum(t.value); m.actual = v ? fromUnit(v, it.unit) : null;
+  draw(); updateValues(); scheduleSave(it);
+}
+app.addEventListener("focusout", e => { const t = e.target; if (S.cur && t.dataset && t.dataset.actVal) { setActual(S.cur, t); flushSave(); } });
 app.addEventListener("input", e => {
   const t = e.target, it = S.cur; if (!it) return;
   const ph = curPhoto();
   if (t.id === "f-name") { it.name = t.value; scheduleSave(it); }
   else if (t.id === "f-notes") { it.notes = t.value; scheduleSave(it); }
+  else if (t.id === "f-desc") { it.description = t.value; scheduleSave(it); }
   else if (t.id === "f-reflen") { const v = parseFloat(t.value); ph.ref.len = v > 0 ? fromUnit(v, it.unit) : null; draw(); updateValues(); scheduleSave(it); }
   else if (t.dataset.lbl) { const m = it.measures.find(m => m.id === t.dataset.lbl); m.label = t.value; t.closest(".m").querySelector(".mname").textContent = t.value; draw(); scheduleSave(it); }
-  else if (t.dataset.actVal) { const m = it.measures.find(m => m.id === t.dataset.actVal); const v = parseFloat(t.value); m.actual = v > 0 ? fromUnit(v, it.unit) : null; draw(); updateValues(); scheduleSave(it); }
+  else if (t.dataset.actVal) setActual(it, t);
 });
 app.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b || b.dataset.pick) return;
@@ -1126,8 +1292,10 @@ app.addEventListener("click", e => {
   if (b.dataset.act === "forgetkey") { setKey(""); toast("Key removed"); renderList(); return; }
   const it = S.cur; if (!it) return;
   const ph = curPhoto();
+  if (b.dataset.redl !== undefined) { if (S.ready && S.ready[+b.dataset.redl]) downloadOne(S.ready[+b.dataset.redl]); return; }
   if (b.dataset.photo !== undefined) { S.pi = +b.dataset.photo; S.sel = null; renderEditor(); return; }
   if (b.dataset.sel) { S.sel = S.sel === b.dataset.sel ? null : b.dataset.sel; renderSide(); draw(); return; }
+  if (b.dataset.fit) { it.fit = it.fit === b.dataset.fit ? "" : b.dataset.fit; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.shape) { S.exp.shape = b.dataset.shape; renderSide(); return; }
   if (b.dataset.unit) { it.unit = b.dataset.unit; renderEditor(); scheduleSave(it); return; }
   if (b.dataset.del) { it.measures = it.measures.filter(m => m.id !== b.dataset.del); it.photos.forEach(p => delete p.lines[b.dataset.del]); S.sel = null; renderSide(); draw(); scheduleSave(it); return; }
@@ -1147,10 +1315,17 @@ app.addEventListener("click", e => {
   if (act === "back") go("list");
   else if (act === "copy") copyText();
   else if (act === "saveall") saveListing(true);
-  else if (act === "shareready") { const f = S.ready; S.ready = null; renderReady(); deliver(f); }
+  else if (act === "shareall") saveListing(true, "share");
+  else if (act === "shareready") { const f = S.ready; S.ready = null; renderReady(); shareFiles(f); }
+  else if (act === "copytitle") copyString(it.name && it.name !== "Untitled garment" ? it.name : "", "Title copied", "Give the garment a title first.");
   else if (act === "saveone") saveListing(false);
   else if (act === "auto") autoPlace();
   else if (act === "faces") findFaces();
+  else if (act === "guess") { it.guessErr = ""; suggestListing(false); }
+  else if (act === "use-all") useGuess("all");
+  else if (act === "use-title") useGuess("title");
+  else if (act === "use-type") useGuess("type");
+  else if (act === "use-desc") useGuess("desc");
   else if (act === "addblur") { const r = { id: uid(), x: .4, y: .1, w: .2, h: .2 }; ph.redact.push(r); S.sel = "r:" + r.id; renderSide(); draw(); scheduleSave(it); }
   else if (act === "delblur") { ph.redact = ph.redact.filter(r => "r:" + r.id !== S.sel); S.sel = null; renderSide(); draw(); scheduleSave(it); }
   else if (act === "delphoto") twoTap("Tap again to delete this photo", () => {
