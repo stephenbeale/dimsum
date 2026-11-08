@@ -257,7 +257,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.16";
+const APP_VERSION = "2026-11-08.18";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -899,12 +899,11 @@ function renderSide() {
       <label class="check"><input type="checkbox" id="f-clean" ${S.exp.clean ? "checked" : ""}> Also save a clean copy, without lines or labels</label>
       ${S.exp.clean ? `<div class="note">Use a clean copy as your first photo on eBay. eBay's photo rules don't allow added text, so keep the measured photos further down the listing.</div>` : ""}
       ${it.photos.length ? `<div class="row2">
-        <button class="btn primary" data-act="saveall">${I("download")}Save ${it.photos.length > 1 ? `all ${it.photos.length} photos` : "photo"} to phone</button>
-        ${it.photos.length > 1 ? `<button class="btn" data-act="saveone">${I("download")}Save this one</button>` : ""}
-        ${canShareFiles() ? `<button class="btn ghost" data-act="shareall">${I("share")}Share…</button>` : ""}
+        <button class="btn primary" data-act="saveall">${I("download")}Download ${it.photos.length > 1 ? `all ${it.photos.length} photos` : "photo"}</button>
+        ${it.photos.length > 1 ? `<button class="btn" data-act="saveone">${I("download")}Download this one</button>` : ""}
       </div>` : ""}
       <div class="row2" id="ready" hidden></div>
-      <div class="note">${S.exp.shape === "both" ? "Saves a Vinted (1200 × 1600) and an eBay (1600 × 1600) version of each photo" : S.exp.shape === "vinted" ? "Saves at 1200 × 1600, the portrait shape Vinted's feed uses" : S.exp.shape === "ebay" ? "Saves at 1600 × 1600, eBay's recommended square size" : "Keeps each photo's own shape"}${S.exp.shape !== "orig" && S.exp.crop === false ? ", with the whole photo fitted in" : ""}. Photos go to your Downloads, where the Vinted and eBay photo pickers can find them.</div>
+      <div class="note">${S.exp.shape === "both" ? "Saves a Vinted (1200 × 1600) and an eBay (1600 × 1600) version of each photo" : S.exp.shape === "vinted" ? "Saves at 1200 × 1600, the portrait shape Vinted's feed uses" : S.exp.shape === "ebay" ? "Saves at 1600 × 1600, eBay's recommended square size" : "Keeps each photo's own shape"}${S.exp.shape !== "orig" && S.exp.crop === false ? ", with the whole photo fitted in" : ""}. Photos download to your phone's Downloads, where the Vinted and eBay photo pickers can find them.</div>
       <span class="lbl">Then list it</span>
       <div class="row2">
         <a class="btn" href="${appLink("vinted")}" target="_blank" rel="noopener" data-golist="vinted">${I("open")}Open Vinted</a>
@@ -954,8 +953,8 @@ function renderSide() {
       <div class="row2"><button class="btn ghost" data-act="copytitle">${I("copy")}Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/80 for eBay</span></div>
       <label class="lbl" for="f-desc">Description</label>
       <textarea id="f-desc" placeholder="What buyers read: brand, colour, fabric, condition…">${esc(it.description || "")}</textarea>
-      <label class="check"><input type="checkbox" id="f-addm" ${it.addMeasures === false ? "" : "checked"}> Add the measurements to the end of the description</label>
-      <pre class="descprev" id="desc-preview" ${it.addMeasures === false ? "hidden" : ""}></pre>
+      <label class="check"><input type="checkbox" id="f-addm" ${it.addMeasures === false ? "" : "checked"}> Keep the measurements at the end of the description (updated automatically)</label>
+
       <div class="row2"><button class="btn ghost" data-act="copy">${I("copy")}Copy description</button></div>
       <label class="lbl" for="f-notes">Private notes</label>
       <textarea id="f-notes" placeholder="Just for you: where you bought it, price paid…">${esc(it.notes || "")}</textarea>
@@ -1262,7 +1261,7 @@ function renderGuess() {
 function useGuess(what) {
   const it = S.cur, g = it.guess; if (!g) return;
   if ((what === "title" || what === "all") && g.title) it.name = g.title;
-  if ((what === "desc" || what === "all") && g.description) it.description = g.description;
+  if ((what === "desc" || what === "all") && g.description) { it.description = g.description; syncDescMeasures(it); }
   if ((what === "type" || what === "all") && g.type && g.type !== it.type) setType(it, g.type);
   if (what === "all" && SIZES[it.type] && !it.size) { const sz = sizeFromText(g.size); if (SIZES[it.type].includes(sz)) it.size = sz; }
   it.isNew = false; scheduleSave(it); renderEditor();
@@ -1270,9 +1269,18 @@ function useGuess(what) {
 }
 
 // ---------- tools ----------
-function summaryText(it) {
-  const m = it.addMeasures === false ? "" : measureText(it), d = (it.description || "").trim();
-  return [d, m].filter(Boolean).join("\n\n");
+function summaryText(it) { syncDescMeasures(it); return (it.description || "").trim(); }
+// The measurements live at the end of the description itself, and are rewritten whenever they change.
+const MEASURE_BLOCK = /\n*Measurements \(laid flat\):\n?(?:• [^\n]*(?:\n|$))*/;
+function syncDescMeasures(it) {
+  if (!it) return false;
+  const before = it.description || "";
+  let text = before.replace(MEASURE_BLOCK, "").replace(/\s+$/, "");
+  const block = it.addMeasures === false ? "" : measureText(it);
+  if (block) text = text ? text + "\n\n" + block : block;
+  if (text === before) return false;
+  it.description = text;
+  return true;
 }
 // Both units: the one used on the photos first, the other in brackets.
 function bothUnits(cm, unit) {
@@ -1290,10 +1298,11 @@ function measureText(it) {
   return rows.length ? `Measurements (laid flat):\n${rows.join("\n")}` : "";
 }
 function renderDescPreview() {
-  const el = $("#desc-preview"); if (!el || !S.cur) return;
-  const txt = measureText(S.cur), on = S.cur.addMeasures !== false;
-  el.hidden = !on;
-  el.textContent = txt || "Type in a measurement and it appears here.";
+  const it = S.cur; if (!it || it.example) return;
+  if (!syncDescMeasures(it)) return;
+  const el = $("#f-desc");
+  if (el && document.activeElement !== el) el.value = it.description;
+  scheduleSave(it);
 }
 function copyString(txt, ok, empty) {
   if (!txt) { toast(empty); return false; }
@@ -1427,8 +1436,8 @@ function downloadOne(f) {
 }
 async function downloadFiles(files) {
   for (let i = 0; i < files.length; i++) { downloadOne(files[i]); if (i < files.length - 1) await new Promise(r => setTimeout(r, 500)); }
-  S.ready = files.length > 1 ? files : null; S.readyMode = "links"; renderReady();
-  toast(files.length > 1 ? `Saving ${files.length} photos to Downloads` : "Saved to Downloads");
+  S.ready = null; renderReady();
+  toast(files.length > 1 ? `Downloading ${files.length} photos. If your browser asks, allow multiple downloads.` : "Downloaded");
 }
 function renderReady() {
   const el = $("#ready"); if (!el) return;
