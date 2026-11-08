@@ -166,6 +166,13 @@ label.check input{width:18px;height:18px}
 .iconbtn:hover{background:rgba(22,32,42,.92)}
 .iconbtn svg{width:22px;height:22px}
 .iconbtn[disabled]{opacity:.5}
+.quickdims{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.qd{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 6px 4px 10px;min-width:0;cursor:text}
+.qd .qn{font-weight:600;font-size:14px;white-space:nowrap}
+.qd .qnum{width:62px;min-height:36px;padding:4px 8px;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.qd .qu{color:var(--muted);font-size:13px}
+.qd.flash{border-color:var(--tape);box-shadow:0 0 0 3px var(--tape)}
+@media (prefers-reduced-motion:no-preference){.qd{transition:box-shadow .3s,border-color .3s}}
 .batchbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--tape);border-radius:8px;padding:8px 12px;margin-bottom:12px}
 .sortlist{display:grid;gap:16px}
 .sortgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}
@@ -250,7 +257,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.13";
+const APP_VERSION = "2026-11-08.14";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -661,7 +668,7 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
   it.measures.forEach((m, i) => {
     const l = !isLabelRole(ph.role) && ph.lines[m.id]; if (!l) return;
     const v = valueOf(m, ph);
-    lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? m.label : m.label + ": " + fmt(v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
+    lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? (opt.handles ? m.label + " · add" : m.label) : m.label + ": " + fmt(v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
   });
   const V = opt.view || { x: 0, y: 0, w: W, h: H };
   if (tagsOf(it).length && !isLabelRole(ph.role)) {
@@ -853,7 +860,8 @@ function renderEditor() {
         </div>
         ${ph ? `<div class="stage" id="stage"><div class="cvwrap"><canvas id="cv" aria-label="${esc(ROLES[ph.role])} photo with measurement lines"></canvas>
           ${it.example ? "" : `<div class="rotbar"><button class="iconbtn" data-act="rot-l" aria-label="Rotate left" title="Rotate left">${ICON_ROT_L}</button><button class="iconbtn" data-act="rot-r" aria-label="Rotate right" title="Rotate right">${ICON_ROT_R}</button></div>`}</div></div>
-        <p class="hint">Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
+        <div class="quickdims" id="quickdims"></div>
+        <p class="hint">Tap a label to type its measurement. Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
         : `<div class="stage"><div class="emptystage"><strong>No photos yet</strong><span>Add the front first, then the back and label.</span>
             <div class="row2" style="justify-content:center"><button class="btn primary" data-pick="cam" data-target="add">${ICON_CAM}Take photo</button><button class="btn" data-pick="lib" data-target="add">${ICON_IMG}Choose photos</button></div></div></div>`}
       </div>
@@ -969,6 +977,12 @@ function renderSide() {
       </div>
     </details>` : ""}`;
   renderDescPreview();
+  renderQuick();
+}
+function renderQuick() {
+  const el = $("#quickdims"), it = S.cur; if (!el || !it) return;
+  const u = it.unit === "in" ? "in" : "cm";
+  el.innerHTML = it.measures.map((m, i) => `<label class="qd" for="q-${m.id}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span><span class="qn">${esc(m.label)}</span><input class="qnum" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" id="q-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="–" aria-label="${esc(m.label)} in ${u}"><span class="qu">${u}</span></label>`).join("");
 }
 function updateValues() {
   renderDescPreview();
@@ -1039,8 +1053,9 @@ function setupCanvas() {
   };
   cv.onpointermove = e => {
     const d = CV.drag; if (!d) { if (e.pointerType === "mouse") cv.style.cursor = hit(pt(e), false) ? "grab" : "default"; return; }
-    const p = pt(e);
+    const p = pt(e); d.last = p;
     const dx = (p.x - d.start.x) / CV.w, dy = (p.y - d.start.y) / CV.h;
+    if (d.end === "label" && Math.hypot(p.x - d.start.x, p.y - d.start.y) < 6) return;
     if (d.end === "crop") {
       ph.crop = { cx: clamp(d.c0.cx + dx, 0, 1), cy: clamp(d.c0.cy + dy, 0, 1) };
       // keep the stored centre where the frame actually is, so the next drag starts from there
@@ -1069,7 +1084,12 @@ function setupCanvas() {
       const fr = cropFramesFor(it, ph); if (fr.length) { const r = fr[0].r; ph.crop = { cx: r.x + r.w / 2, cy: r.y + r.h / 2 }; }
     }
     if (fitLinesToCrop(it, ph)) updateValues();
+    const d = CV.drag, tapped = d.end === "label" && (!d.last || Math.hypot(d.last.x - d.start.x, d.last.y - d.start.y) < 6);
     CV.drag = null; draw(); scheduleSave(it);
+    if (tapped && d.id) {
+      const q = document.getElementById("q-" + d.id);
+      if (q) { q.focus({ preventScroll: true }); q.select(); q.scrollIntoView({ block: "nearest", behavior: "smooth" }); q.closest(".qd")?.classList.add("flash"); setTimeout(() => q.closest(".qd")?.classList.remove("flash"), 900); }
+    }
   };
   cv.onpointerup = end; cv.onpointercancel = end;
   window.onresize = () => CV && CV.layout && CV.layout();
@@ -1716,6 +1736,7 @@ function parseNum(str) { const v = parseFloat(String(str).replace(",", ".").repl
 function setActual(it, t) {
   const m = it.measures.find(m => m.id === t.dataset.actVal); if (!m) return;
   const v = parseNum(t.value); m.actual = v ? fromUnit(v, it.unit) : null;
+  for (const el of document.querySelectorAll(`[data-act-val="${m.id}"]`)) if (el !== t && el.value !== t.value) el.value = t.value;
   draw(); updateValues(); scheduleSave(it);
 }
 // Typing in a measurement box: close any other open row (without redrawing the panel, so the keyboard stays up)
