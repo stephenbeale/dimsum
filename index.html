@@ -358,8 +358,8 @@ function bestValue(it, m) {
 const n1 = v => String(+v.toFixed(1));
 function fmt(cm, unit) {
   if (cm == null || !isFinite(cm)) return "—";
-  if (unit === "in") return n1(cm / 2.54) + " in";
-  if (unit === "both") return n1(cm) + " cm / " + n1(cm / 2.54) + " in";
+  if (unit === "in") return n1(cm / 2.54) + '"';
+  if (unit === "both") return n1(cm) + " cm / " + n1(cm / 2.54) + '"';
   return n1(cm) + " cm";
 }
 const inUnit = (cm, unit) => unit === "in" ? +(cm / 2.54).toFixed(2) : +(+cm).toFixed(1);
@@ -565,7 +565,7 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
   it.measures.forEach((m, i) => {
     const l = ph.lines[m.id]; if (!l) return;
     const v = valueOf(m, ph);
-    lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? m.label : m.label + "  " + fmt(v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
+    lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? m.label : m.label + ": " + fmt(v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
   });
   if (fitOf(it) && ph.role !== "label") {
     ctx.save(); ctx.font = `700 ${12.5 * k}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textBaseline = "middle";
@@ -1031,7 +1031,7 @@ function summaryText(it) {
 }
 function measureText(it) {
   const rows = it.measures.map(m => ({ m, v: bestValue(it, m) })).filter(r => r.v.cm != null)
-    .map(({ m, v }) => `${m.label}: ${it.unit === "cm" ? `${n1(v.cm)} cm (${n1(v.cm / 2.54)} in)` : `${n1(v.cm / 2.54)} in (${n1(v.cm)} cm)`}${v.kind === "est." ? ", approx." : ""}`);
+    .map(({ m, v }) => `${m.label}: ${it.unit === "cm" ? `${n1(v.cm)} cm (${n1(v.cm / 2.54)}")` : `${n1(v.cm / 2.54)}" (${n1(v.cm)} cm)`}${v.kind === "est." ? ", approx." : ""}`);
   if (fitOf(it)) rows.unshift(`Fit: ${fitOf(it)}`);
   return rows.length ? `Measurements, laid flat:\n${rows.join("\n")}` : "";
 }
@@ -1081,10 +1081,11 @@ async function renderListing(it, ph) {
     rows.forEach((r, n) => {
       const x = 16 * k + (n % cols) * colW, y = areaH + 22 * k + Math.floor(n / cols) * rowH + 17 * k;
       g.fillStyle = COLORS[r.i % COLORS.length]; g.fillRect(x, y - 10 * k, 10 * k, 10 * k);
-      g.fillStyle = "#e6ebf0"; g.font = `600 ${13 * k}px Archivo, Arial, sans-serif`; g.fillText(r.m.label, x + 18 * k, y);
+      g.fillStyle = "#e6ebf0"; g.font = `600 ${13 * k}px Archivo, Arial, sans-serif`;
+      const lab = r.m.label + ": "; g.fillText(lab, x + 18 * k, y);
+      const lw = g.measureText(lab).width;
       g.font = `500 ${13 * k}px "IBM Plex Mono", monospace`;
-      const t = fmt(r.v.cm, it.unit) + (r.v.kind === "est." ? " ≈" : "");
-      g.fillText(t, x + colW - 14 * k - g.measureText(t).width, y);
+      g.fillText(fmt(r.v.cm, it.unit) + (r.v.kind === "est." ? " ≈" : ""), x + 18 * k + lw, y);
     });
   }
   return new Promise(r => c.toBlob(r, "image/jpeg", 0.92));
