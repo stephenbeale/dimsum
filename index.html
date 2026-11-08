@@ -158,6 +158,12 @@ label.check input{width:18px;height:18px}
 .guess dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:0}
 .guess dt{color:var(--muted)} .guess dd{margin:0;overflow-wrap:anywhere}
 .guess p{margin:0;white-space:pre-wrap}
+.batchbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--tape);border-radius:8px;padding:8px 12px;margin-bottom:12px}
+.sortlist{display:grid;gap:16px}
+.sortgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}
+.sortcard{display:grid;gap:6px;min-width:0}
+.sortcard img{width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:6px;background:var(--sunk);display:block}
+.sortcard select{width:100%;min-height:38px;padding:4px 8px;font-size:14px}
 .settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:28px}
 </style>
 
@@ -186,7 +192,8 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 const COLORS = ["#ffd23f", "#3ddbd9", "#ff6b6b", "#a593ff", "#7bd88f", "#ff9f43", "#f78fd0", "#8fd3ff"];
 const REF_COLOR = "#ffffff";
-const ROLES = { front: "Front", back: "Back", label: "Label", detail: "Detail", worn: "Worn" };
+const ROLES = { front: "Front", back: "Back", sizelabel: "Size label", material: "Material label", detail: "Detail", worn: "Worn" };
+const isLabelRole = r => r === "sizelabel" || r === "material" || r === "label";
 
 const T = (key, label, a, b, how, optional = false) => ({ key, label, a, b, how, optional });
 const TEMPLATES = {
@@ -235,7 +242,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.2";
+const APP_VERSION = "2026-11-08.4";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -259,11 +266,13 @@ const PRESETS = {
 // ---------- state ----------
 const S = {
   mode: "pending", items: [], loaded: false, loadErr: "", view: "list",
-  cur: null, pi: 0, sel: null, example: null, exp: { shape: "45", strip: true },
+  cur: null, pi: 0, sel: null, example: null, exp: { shape: "45", strip: true, clean: false }, sort: null,
   canImages: false,
   pick: null, busy: false, ready: null,
 };
 const canFaces = () => true;
+try { Object.assign(S.exp, JSON.parse(localStorage.getItem("dimsum.exp") || "{}")); } catch {}
+function saveExp() { try { localStorage.setItem("dimsum.exp", JSON.stringify(S.exp)); } catch {} }
 const KEY_NAME = "dimsum.claudeKey";
 function getKey() { try { return localStorage.getItem(KEY_NAME) || ""; } catch { return ""; } }
 function setKey(v) { try { v ? localStorage.setItem(KEY_NAME, v) : localStorage.removeItem(KEY_NAME); } catch {} S.canImages = !!v; }
@@ -397,7 +406,7 @@ function normalize(raw) {
     it.photos = (it.photoId || it.photoBlob) ? [{ id: uid(), role: "front", photoId: it.photoId || null, blob: it.photoBlob || null, w: it.w, h: it.h, lines, ref: it.ref || null, redact: [] }] : [];
   }
   it.measures = (it.measures || []).map(({ id, key, label, actual, touched }) => ({ id, key, label, actual: actual ?? null, touched: !!touched }));
-  it.photos = it.photos.map(p => ({ ...p, lines: p.lines || {}, redact: p.redact || [], ref: p.ref || null }));
+  it.photos = it.photos.map(p => ({ ...p, role: p.role === "label" ? "sizelabel" : p.role, lines: p.lines || {}, redact: p.redact || [], ref: p.ref || null }));
   delete it.photoId; delete it.photoBlob; delete it.w; delete it.h; delete it.ref;
   return it;
 }
@@ -501,7 +510,7 @@ async function prepPhoto(file) {
 }
 function nextRole(it, i) {
   const used = new Set(it ? it.photos.map(p => p.role) : []);
-  const order = ["front", "back", "label"];
+  const order = ["front", "back", "sizelabel", "material"];
   let n = 0;
   for (const r of order) { if (!used.has(r)) { if (n === i) return r; n++; } }
   return "detail";
@@ -529,6 +538,11 @@ async function ingest(files, target) {
       const p = { id: uid(), role: nextRole(it, i), w, h, lines: {}, ref: null, redact: [], fresh: true, fileName: files[i].name || "" };
       p.blob = blob;
       photos.push(p);
+    }
+    if (isNew && photos.length > 1) {
+      setStatus("");
+      startSort(photos, files);
+      return;
     }
     if (isNew) {
       const ni = { id: uid(), name: "Untitled garment", type: "coat", unit: "in", notes: "", measures: freshMeasures("coat"), photos, createdAt: Date.now(), updatedAt: Date.now() };
@@ -575,11 +589,11 @@ function drawRedactions(ctx, img, ph, W, H, k, opt = {}) {
 function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
   const lines = [];
   it.measures.forEach((m, i) => {
-    const l = ph.lines[m.id]; if (!l) return;
+    const l = !isLabelRole(ph.role) && ph.lines[m.id]; if (!l) return;
     const v = valueOf(m, ph);
     lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? m.label : m.label + ": " + fmt(v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
   });
-  if (tagsOf(it).length && ph.role !== "label") {
+  if (tagsOf(it).length && !isLabelRole(ph.role)) {
     ctx.save(); ctx.font = `700 ${12.5 * k}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textBaseline = "middle";
     const t = tagsOf(it).join(" · "), pw = ctx.measureText(t).width + 16 * k, ph2 = 24 * k;
     roundRect(ctx, 8 * k, 8 * k, pw, ph2, 5 * k); ctx.fillStyle = "rgba(255,255,255,.94)"; ctx.fill();
@@ -662,7 +676,7 @@ function makeExample() {
     photos: [
       { id: "exf", role: "front", url: front, w: N, h: N, lines, ref: null, redact: [] },
       { id: "exb", role: "back", url: back, w: N, h: N, lines: { "ex-length": { a: [.5,.11], b: [.5,.92] } }, ref: null, redact: [] },
-      { id: "exl", role: "label", url: label, w: 1200, h: 1500, lines: {}, ref: null, redact: [] },
+      { id: "exl", role: "sizelabel", url: label, w: 1200, h: 1500, lines: {}, ref: null, redact: [] },
     ] };
 }
 
@@ -739,6 +753,7 @@ function renderEditor() {
   const ph = curPhoto();
   $("#app").innerHTML = `
     ${it.example ? `<div class="banner">This is an example made of drawings. Try typing values and dragging dots; changes here aren't saved. Add your own garment from the wardrobe.</div>` : ""}
+    ${batchBar(it)}
     ${it.isNew ? `<div class="banner">Pick the garment type and type in each measurement. The lines start in rough positions; ${S.canImages ? "tap <b>Place lines with Claude</b> to snap them to the seams, or " : ""}drag the dots to where you measured. Add the back and label with <b>+ Photo</b>.</div>` : ""}
     <div class="edtop">
       <button class="btn ghost" data-act="back" aria-label="Back to wardrobe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Wardrobe</button>
@@ -773,7 +788,7 @@ function renderSide() {
     const est = sc && ph.lines[m.id] ? pxLen(ph, ph.lines[m.id]) / sc.ppc : null;
     return `<div class="m ${sel ? "sel" : ""}">
       <div class="mhead">
-        ${ph ? `<input type="checkbox" class="mon" data-on="${m.id}" ${ph.lines[m.id] ? "checked" : ""} aria-label="Show ${esc(m.label)} on this photo" title="Show on this photo">` : ""}
+        ${ph && !isLabelRole(ph.role) ? `<input type="checkbox" class="mon" data-on="${m.id}" ${ph.lines[m.id] ? "checked" : ""} aria-label="Show ${esc(m.label)} on this photo" title="Show on this photo">` : ""}
         <span class="sw" style="background:${COLORS[i % COLORS.length]}"></span>
         <button class="mname" data-sel="${m.id}" aria-expanded="${sel}">${esc(m.label)}</button>
         <input class="mnum" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" id="act-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${est ? "≈ " + inUnit(est, u) : ""}" aria-label="${esc(m.label)} in ${u}"><span class="munit">${u}</span></div>
@@ -791,6 +806,8 @@ function renderSide() {
       <h2>Listing photos</h2>
       <div class="seg" role="group" aria-label="Photo shape">${shapes.map(([k, l]) => `<button data-shape="${k}" aria-pressed="${S.exp.shape === k}">${l}</button>`).join("")}</div>
       <label class="check"><input type="checkbox" id="f-strip" ${S.exp.strip ? "checked" : ""}> Add a measurements list under photos that show lines</label>
+      <label class="check"><input type="checkbox" id="f-clean" ${S.exp.clean ? "checked" : ""}> Also save a clean copy, without lines or labels</label>
+      ${S.exp.clean ? `<div class="note">Use a clean copy as your first photo on eBay. eBay's photo rules don't allow added text, so keep the measured photos further down the listing.</div>` : ""}
       ${it.photos.length ? `<div class="row2">
         <button class="btn primary" data-act="saveall">Save ${it.photos.length > 1 ? `all ${it.photos.length} photos` : "photo"} to phone</button>
         ${it.photos.length > 1 ? `<button class="btn" data-act="saveone">Save this one</button>` : ""}
@@ -814,7 +831,7 @@ function renderSide() {
         <select id="f-role" aria-label="What this photo shows">${Object.entries(ROLES).map(([k, l]) => `<option value="${k}" ${ph.role === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         ${it.example ? "" : `<button class="btn ghost danger" data-act="delphoto">Delete photo</button>`}
       </div>
-      ${!ph.faceChecked && !ph.redact.length && ph.role !== "label" ? `<div class="offer">Is anyone in this photo, say a mirror shot or someone holding it up? You can blur faces before you post it.</div>` : ""}
+      ${!ph.faceChecked && !ph.redact.length && !isLabelRole(ph.role) ? `<div class="offer">Is anyone in this photo, say a mirror shot or someone holding it up? You can blur faces before you post it.</div>` : ""}
       <div class="row2">
         ${canFaces() ? `<button class="btn" data-act="faces" id="btn-faces">Find and blur faces</button>` : ""}
         <button class="btn" data-act="addblur">Add blur box</button>
@@ -824,7 +841,8 @@ function renderSide() {
     </section>` : ""}
     <section class="panel">
       <h2>Measurements <span style="text-transform:none;letter-spacing:0;font-weight:500">laid flat</span></h2>
-      ${ph && S.canImages ? `<div class="row2"><button class="btn" data-act="auto" id="btn-auto">Place lines with Claude</button></div><div class="ai-status" id="ai-status">Sends this ${esc(role)} photo to Claude, which moves the ticked lines onto the seams. Check them before you save.</div>` : ph ? `<div class="note">Drag the dots onto the seams. Add a Claude API key on the wardrobe page to have Claude place them for you.</div>` : ""}
+      ${ph && isLabelRole(ph.role) ? `<div class="note">This is a label photo, so it doesn't show measurement lines. The values still go on the front and back photos.</div>` : ""}
+      ${ph && !isLabelRole(ph.role) && S.canImages ? `<div class="row2"><button class="btn" data-act="auto" id="btn-auto">Place lines with Claude</button></div><div class="ai-status" id="ai-status">Sends this ${esc(role)} photo to Claude, which moves the ticked lines onto the seams. Check them before you save.</div>` : ph ? `<div class="note">Drag the dots onto the seams. Add a Claude API key on the wardrobe page to have Claude place them for you.</div>` : ""}
       <div class="mlist">${mrows || `<div class="note" style="padding:6px">No measurements yet. Add one below.</div>`}</div>
       ${SIZES[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Size</span><div class="seg" role="group" aria-label="Size">${SIZES[it.type].map(f => `<button data-size="${f}" aria-pressed="${it.size === f}">${f}</button>`).join("")}</div></div>` : ""}
       ${FITS[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Fit</span><div class="seg" role="group" aria-label="Fit">${FITS[it.type].map(f => `<button data-fit="${f}" aria-pressed="${it.fit === f}">${f}</button>`).join("")}</div></div>` : ""}
@@ -996,7 +1014,7 @@ async function suggestListing(auto = false) {
   if (!it.photos.length) { toast("Add a photo first."); return; }
   guessBusy = true; renderGuess();
   try {
-    const order = ["label", "front", "back", "detail", "worn"];
+    const order = ["sizelabel", "material", "front", "back", "detail", "worn"];
     const pics = [...it.photos].sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role)).slice(0, 4);
     const blobs = await Promise.all(pics.map(p => photoBlobForClaude(p, 1280).then(r => r.blob)));
     const names = it.photos.map(p => p.fileName).filter(Boolean);
@@ -1090,7 +1108,7 @@ function avgColor(img) {
   try { const c = document.createElement("canvas"); c.width = c.height = 1; const g = c.getContext("2d"); g.drawImage(img, 0, 0, 1, 1); const d = g.getImageData(0, 0, 1, 1).data; return `rgb(${d[0]},${d[1]},${d[2]})`; }
   catch { return "#d9d9d9"; }
 }
-async function renderListing(it, ph) {
+async function renderListing(it, ph, clean = false) {
   const img = await loadImg(ph);
   const shape = S.exp.shape;
   const showsLines = it.measures.some(m => ph.lines[m.id]);
@@ -1098,7 +1116,7 @@ async function renderListing(it, ph) {
   const iw = img.naturalWidth, ih = img.naturalHeight;
   const OW = shape === "orig" ? iw : 1600, k = OW / 600;
   const cols = rows.length > 3 ? 2 : 1, rowH = 24 * k;
-  const stripH = S.exp.strip && showsLines && rows.length ? 22 * k + Math.ceil(rows.length / cols) * rowH + 10 * k : 0;
+  const stripH = !clean && S.exp.strip && showsLines && rows.length ? 22 * k + Math.ceil(rows.length / cols) * rowH + 10 * k : 0;
   let OH, areaH;
   if (shape === "orig") { areaH = OW * ih / iw; OH = areaH + stripH; }
   else { OH = shape === "11" ? OW : OW * 1.25; areaH = OH - stripH; }
@@ -1107,7 +1125,7 @@ async function renderListing(it, ph) {
   const c = document.createElement("canvas"); c.width = Math.round(OW); c.height = Math.round(OH); const g = c.getContext("2d");
   g.fillStyle = avgColor(img); g.fillRect(0, 0, OW, areaH);
   g.drawImage(img, ox, oy, dw, dh);
-  g.save(); g.translate(ox, oy); drawRedactions(g, img, ph, dw, dh, k); drawOverlay(g, it, ph, dw, dh, k, { handles: false }); g.restore();
+  g.save(); g.translate(ox, oy); drawRedactions(g, img, ph, dw, dh, k); if (!clean) drawOverlay(g, it, ph, dw, dh, k, { handles: false }); g.restore();
   if (stripH) {
     g.fillStyle = "#16202a"; g.fillRect(0, areaH, OW, stripH);
     g.fillStyle = "#97a3b0"; g.font = `600 ${9 * k}px Archivo, Arial, sans-serif`; g.textBaseline = "alphabetic";
@@ -1125,10 +1143,11 @@ async function renderListing(it, ph) {
   }
   return new Promise(r => c.toBlob(r, "image/jpeg", 0.92));
 }
-function fileName(it, ph, idx) {
+function fileName(it, ph, idx, kind = "") {
   const name = (it.name || "garment").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "garment";
   const sameRole = it.photos.filter(p => p.role === ph.role).length > 1;
-  return `${name}-${idx + 1}-${ph.role}${sameRole ? "-" + (idx + 1) : ""}-${{ "45": "portrait", "11": "square", orig: "original" }[S.exp.shape]}.jpg`;
+  const order = kind === "clean" ? "a" : kind === "measured" ? "b" : "";
+  return `${name}-${idx + 1}${order}-${ph.role}${sameRole ? "-" + (idx + 1) : ""}${kind ? "-" + kind : ""}-${{ "45": "portrait", "11": "square", orig: "original" }[S.exp.shape]}.jpg`;
 }
 function canShareFiles() {
   try { return !!(navigator.canShare && navigator.canShare({ files: [new File(["x"], "x.jpg", { type: "image/jpeg" })] })); } catch { return false; }
@@ -1148,7 +1167,15 @@ async function saveListing(all, mode = "save") {
   const list = all ? it.photos.map((p, i) => [p, i]) : [[curPhoto(), S.pi]];
   setStatus(list.length > 1 ? `Making ${list.length} listing photos…` : "Making the listing photo…");
   const files = [];
-  try { for (const [ph, i] of list) files.push(new File([await renderListing(it, ph)], fileName(it, ph, i), { type: "image/jpeg" })); }
+  try {
+    for (const [ph, i] of list) {
+      const lined = it.measures.some(m => ph.lines[m.id]);
+      if (S.exp.clean && lined) {
+        files.push(new File([await renderListing(it, ph, true)], fileName(it, ph, i, "clean"), { type: "image/jpeg" }));
+        files.push(new File([await renderListing(it, ph)], fileName(it, ph, i, "measured"), { type: "image/jpeg" }));
+      } else files.push(new File([await renderListing(it, ph)], fileName(it, ph, i), { type: "image/jpeg" }));
+    }
+  }
   catch (e) { setStatus(""); toast(e.message || "Couldn't make the photos."); return; }
   setStatus("");
   if (mode === "share") await shareFiles(files); else downloadFiles(files);
@@ -1260,10 +1287,136 @@ async function findFaces() {
   } finally { const b = $("#btn-faces"); if (b) b.disabled = false; }
 }
 
+// ---------- sorting a batch of photos into garments ----------
+const ROLE_ORDER = ["front", "back", "detail", "worn", "sizelabel", "material"];
+function startSort(photos, files) {
+  // Without Claude: start a new garment whenever photos were taken more than 5 minutes apart.
+  let g = 1, last = null;
+  const items = photos.map((p, i) => {
+    const t = files[i].lastModified || 0;
+    if (last != null && t && Math.abs(t - last) > 5 * 60 * 1000) g++;
+    if (t) last = t;
+    return { p, g, role: "front", url: URL.createObjectURL(p.blob) };
+  });
+  const byG = {};
+  for (const x of items) { byG[x.g] = (byG[x.g] || 0) + 1; x.role = ["front", "back", "sizelabel", "material"][byG[x.g] - 1] || "detail"; }
+  const groups = new Set(items.map(x => x.g)).size;
+  S.sort = { photos: items, types: {}, busy: false,
+    status: S.canImages ? "" : groups > 1 ? `Split into ${groups} garments by the time each photo was taken. Check them below.` : "Add a Claude API key on the wardrobe page and Claude will sort photos of different garments for you." };
+  S.view = "sort"; render(); window.scrollTo(0, 0);
+  if (S.canImages) sortWithClaude();
+}
+function sortGroups() { const out = []; for (const x of S.sort.photos) if (!out.includes(x.g)) out.push(x.g); return out; }
+function renderSort() {
+  const st = S.sort, groups = sortGroups();
+  const roleOpts = r => Object.entries(ROLES).map(([k, l]) => `<option value="${k}" ${r === k ? "selected" : ""}>${l}</option>`).join("");
+  $("#app").innerHTML = `
+    <div class="banner">You chose ${st.photos.length} photos. Check they're grouped by garment, then tap <b>Create</b>. To move a photo, change the garment under it.</div>
+    <div class="ai-status${st.err ? " err" : ""}" id="sort-status" style="margin-bottom:12px">${esc(st.status)}</div>
+    <div class="sortlist">
+    ${groups.map((g, gi) => {
+      const ps = st.photos.map((x, i) => [x, i]).filter(([x]) => x.g === g);
+      return `<section class="panel">
+        <h2>Garment ${gi + 1}${st.types[g] ? ` · ${esc(TEMPLATES[st.types[g]].name)}` : ""} <span style="text-transform:none;letter-spacing:0;font-weight:500">${ps.length} photo${ps.length > 1 ? "s" : ""}</span></h2>
+        <div class="sortgrid">${ps.map(([x, i]) => `<div class="sortcard">
+          <img src="${x.url}" alt="Photo ${i + 1}">
+          <select data-sort-g="${i}" aria-label="Garment for photo ${i + 1}">${groups.map((gg, j) => `<option value="${gg}" ${gg === g ? "selected" : ""}>Garment ${j + 1}</option>`).join("")}<option value="new">New garment</option></select>
+          <select data-sort-role="${i}" aria-label="What photo ${i + 1} shows">${roleOpts(x.role)}</select>
+        </div>`).join("")}</div>
+      </section>`;
+    }).join("")}
+    </div>
+    <div class="row2" style="margin-top:16px">
+      <button class="btn primary" data-sort-act="create" ${st.busy ? "disabled" : ""}>Create ${groups.length} garment${groups.length > 1 ? "s" : ""}</button>
+      ${S.canImages ? `<button class="btn" data-sort-act="claude" ${st.busy ? "disabled" : ""}>${st.busy ? "Claude is sorting…" : "Sort again with Claude"}</button>` : ""}
+      ${groups.length > 1 ? `<button class="btn" data-sort-act="one">Make it all one garment</button>` : ""}
+      <button class="btn ghost" data-sort-act="cancel">Cancel</button>
+    </div>`;
+}
+function photoThumb(url, max) {
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => { const k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight)); const c = document.createElement("canvas"); c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); c.toBlob(res, "image/jpeg", .8); };
+    im.onerror = () => rej(new Error("A photo couldn't be read.")); im.src = url;
+  });
+}
+const SORT_SCHEMA = { type: "object", additionalProperties: false, required: ["photos", "groups"], properties: {
+  photos: { type: "array", items: { type: "object", additionalProperties: false, required: ["n", "group", "role"], properties: { n: { type: "integer" }, group: { type: "integer" }, role: { type: "string", enum: Object.keys(ROLES) } } } },
+  groups: { type: "array", items: { type: "object", additionalProperties: false, required: ["group", "type"], properties: { group: { type: "integer" }, type: { type: "string", enum: Object.keys(TEMPLATES) } } } } } };
+async function sortWithClaude() {
+  const st = S.sort; if (!st || st.busy) return;
+  st.busy = true; st.err = false; st.status = "Claude is working out which photos show the same garment…"; renderSort();
+  try {
+    const list = st.photos.slice(0, 40);
+    const blobs = await Promise.all(list.map(x => photoThumb(x.url, 512)));
+    const prompt = `These ${list.length} photos are numbered 1 to ${list.length}, in the order given. Someone selling second-hand clothes took them, and they may show several different garments.
+Group the photos so each group shows one physical garment: its front, back, label or tag close-ups, details, or the garment being worn. Compare colour, fabric, pattern and features. A label close-up belongs with the garment photographed just before or after it, unless it clearly matches another garment.
+Number groups from 1 in the order they first appear. For every photo give its number n, its group and its role: front, back, sizelabel (a close-up of the size tag), material (a close-up of the fabric or care label), detail, or worn. For every group give the closest garment type.`;
+    const r = await callClaude(prompt, blobs, SORT_SCHEMA, "low");
+    if (S.sort !== st) return;
+    for (const q of r.photos || []) { const x = list[q.n - 1]; if (x && Number.isInteger(q.group) && q.group > 0) { x.g = q.group; if (ROLES[q.role]) x.role = q.role; } }
+    st.types = {}; for (const q of r.groups || []) if (TEMPLATES[q.type]) st.types[q.group] = q.type;
+    const n = sortGroups().length;
+    st.status = `Claude found ${n} garment${n > 1 ? "s" : ""}. Check below and fix anything it got wrong.`;
+  } catch (e) { st.status = e.message || "Claude couldn't sort these photos."; st.err = true; }
+  finally { st.busy = false; if (S.sort === st && S.view === "sort") renderSort(); }
+}
+async function createFromSort() {
+  const st = S.sort, made = [];
+  for (const g of sortGroups()) {
+    const photos = st.photos.filter(x => x.g === g).map(x => ({ ...x.p, role: x.role }))
+      .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+    const fromName = guessFromNames(photos.map(p => p.fileName));
+    const type = st.types[g] || fromName || "coat";
+    const ni = { id: uid(), name: "Untitled garment", type, unit: "in", notes: "", measures: freshMeasures(type), photos, createdAt: Date.now(), updatedAt: Date.now() };
+    const cover = photos.find(p => p.role === "front") || photos.find(p => !isLabelRole(p.role)) || photos[0];
+    cover.lines = defaultLines(ni);
+    if (!st.types[g] && fromName) ni.guess = { source: "name", type: fromName };
+    try { await writeItem(ni); made.push(ni); } catch { toast("Couldn't save one of the garments. Storage may be full."); }
+  }
+  for (const x of st.photos) URL.revokeObjectURL(x.url);
+  S.sort = null;
+  if (made.length === 1) { open(made[0].id, true, made[0]); if (S.canImages) suggestListing(true); }
+  else if (made.length) { S.batch = { ids: made.map(x => x.id) }; openBatch(0); }
+  else { S.view = "list"; render(); }
+}
+document.addEventListener("change", e => {
+  const t = e.target, st = S.sort; if (!st || S.view !== "sort") return;
+  if (t.dataset.sortG !== undefined) {
+    const x = st.photos[+t.dataset.sortG];
+    x.g = t.value === "new" ? Math.max(...st.photos.map(y => y.g)) + 1 : +t.value;
+    renderSort();
+  } else if (t.dataset.sortRole !== undefined) st.photos[+t.dataset.sortRole].role = t.value;
+});
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-sort-act]"); if (!b || !S.sort) return;
+  const act = b.dataset.sortAct;
+  if (act === "create") createFromSort();
+  else if (act === "claude") sortWithClaude();
+  else if (act === "one") { const g = S.sort.photos[0].g; S.sort.photos.forEach(x => x.g = g); renderSort(); }
+  else if (act === "cancel") { for (const x of S.sort.photos) URL.revokeObjectURL(x.url); S.sort = null; S.view = "list"; render(); }
+});
+
+function openBatch(i) {
+  const b = S.batch; if (!b) return;
+  flushSave();
+  const id = b.ids[i], obj = S.items.find(x => x.id === id); if (!obj) { S.batch = null; go("list"); return; }
+  open(id, true, obj);
+  if (S.canImages && !S.cur.guess) suggestListing(true);
+}
+function batchBar(it) {
+  const b = S.batch; if (!b) return "";
+  const i = b.ids.indexOf(it.id); if (i < 0) return "";
+  const last = i === b.ids.length - 1;
+  return `<div class="batchbar"><strong>Garment ${i + 1} of ${b.ids.length}</strong>
+    <div class="row2">${i > 0 ? `<button class="btn ghost" data-act="batch-prev">Previous</button>` : ""}
+    <button class="btn primary" data-act="${last ? "batch-done" : "batch-next"}">${last ? "Finish" : "Next garment"}</button></div></div>`;
+}
+
 // ---------- routing & events ----------
 function render() {
   renderChip();
-  if (S.view === "list") renderList(); else renderEditor();
+  if (S.view === "list") renderList(); else if (S.view === "sort") renderSort(); else renderEditor();
 }
 function go(view) {
   if (view === "list") { flushSave(); S.cur = null; S.sel = null; S.pi = 0; CV = null; window.onresize = null; }
@@ -1283,14 +1436,15 @@ const app = $("#app");
 app.addEventListener("change", e => {
   const t = e.target, it = S.cur; if (!it) return;
   const ph = curPhoto();
-  if (t.id === "f-strip") { S.exp.strip = t.checked; return; }
+  if (t.id === "f-strip") { S.exp.strip = t.checked; saveExp(); return; }
+  if (t.id === "f-clean") { S.exp.clean = t.checked; saveExp(); renderSide(); return; }
   if (t.dataset.on) {
     const m = it.measures.find(m => m.id === t.dataset.on);
     if (t.checked) ph.lines[m.id] = defaultLine(it, m); else delete ph.lines[m.id];
     if (S.sel === m.id && !t.checked) S.sel = null;
     draw(); updateValues(); scheduleSave(it); return;
   }
-  if (t.id === "f-role") { ph.role = t.value; renderEditor(); scheduleSave(it); return; }
+  if (t.id === "f-role") { ph.role = t.value; if (isLabelRole(ph.role)) ph.lines = {}; S.sel = null; renderEditor(); scheduleSave(it); return; }
   if (t.id === "f-type") {
     setType(it, t.value);
     S.sel = null; renderSide(); draw(); scheduleSave(it);
@@ -1333,7 +1487,7 @@ app.addEventListener("click", e => {
   if (b.dataset.sel) { S.sel = S.sel === b.dataset.sel ? null : b.dataset.sel; renderSide(); draw(); return; }
   if (b.dataset.size) { it.size = it.size === b.dataset.size ? "" : b.dataset.size; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.fit) { it.fit = it.fit === b.dataset.fit ? "" : b.dataset.fit; renderSide(); draw(); scheduleSave(it); return; }
-  if (b.dataset.shape) { S.exp.shape = b.dataset.shape; renderSide(); return; }
+  if (b.dataset.shape) { S.exp.shape = b.dataset.shape; saveExp(); renderSide(); return; }
   if (b.dataset.unit) { it.unit = b.dataset.unit; renderEditor(); scheduleSave(it); return; }
   if (b.dataset.del) { it.measures = it.measures.filter(m => m.id !== b.dataset.del); it.photos.forEach(p => delete p.lines[b.dataset.del]); S.sel = null; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.addm !== undefined) {
@@ -1349,7 +1503,10 @@ app.addEventListener("click", e => {
     b.dataset.armed = "1"; const old = b.textContent; b.textContent = label;
     setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = old; } }, 3500);
   };
-  if (act === "back") go("list");
+  if (act === "back") { S.batch = null; go("list"); }
+  else if (act === "batch-next") openBatch(S.batch.ids.indexOf(it.id) + 1);
+  else if (act === "batch-prev") openBatch(S.batch.ids.indexOf(it.id) - 1);
+  else if (act === "batch-done") { const n = S.batch.ids.length; S.batch = null; go("list"); toast(`All ${n} garments done.`); }
   else if (act === "copy") copyText();
   else if (act === "saveall") saveListing(true);
   else if (act === "shareall") saveListing(true, "share");
