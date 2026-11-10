@@ -257,7 +257,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-08.18";
+const APP_VERSION = "2026-11-10.1";
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -429,7 +429,7 @@ function normalize(raw) {
 }
 function toDoc(it) {
   return {
-    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", addMeasures: it.addMeasures !== false, createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
+    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", addMeasures: it.addMeasures !== false, createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
     photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, crop: p.crop || null })),
   };
@@ -818,12 +818,14 @@ function renderList() {
       ${!items.length ? cardHTML(S.example) : ""}
     </div>
     <div class="settings">
-      <section class="panel">
-        <h2>Claude (optional)</h2>
+      <details class="panel" ${getKey() ? "open" : ""}>
+        <summary>Advanced: use your own Claude API key</summary>
+        <div class="inner">
         <p class="note" style="margin:0">With your own Anthropic API key, Claude can place the measurement lines for you and double-check for faces the on-device finder misses. The key is stored only in this browser and sent only to api.anthropic.com, with the one photo you ask about. Everything else works without it.</p>
         <div class="row2"><input type="password" id="f-key" placeholder="${getKey() ? "Key saved. Paste a new one to replace it" : "sk-ant-…"}" autocomplete="off" spellcheck="false" style="flex:1 1 220px"><button class="btn" data-act="savekey">${I("key")}Save key</button>${getKey() ? `<button class="btn ghost danger" data-act="forgetkey">${I("x")}Forget key</button>` : ""}</div>
         <p class="note" style="margin:0">${getKey() ? "A key is saved." : "No key saved."} Create one at console.anthropic.com.</p>
-      </section>
+      </div>
+      </details>
       <section class="panel">
         <h2>Where your garments are kept</h2>
         <p class="note" style="margin:0">On this device only, in this browser. Nothing is uploaded. On iPhone, add Dimsum to your Home Screen (Share, then Add to Home Screen) and use it from there: Safari deletes a website's saved data after 7 days without a visit, but Home Screen apps keep theirs.</p>
@@ -953,7 +955,7 @@ function renderSide() {
       <div class="row2"><button class="btn ghost" data-act="copytitle">${I("copy")}Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/80 for eBay</span></div>
       <label class="lbl" for="f-desc">Description</label>
       <textarea id="f-desc" placeholder="What buyers read: brand, colour, fabric, condition…">${esc(it.description || "")}</textarea>
-      <label class="check"><input type="checkbox" id="f-addm" ${it.addMeasures === false ? "" : "checked"}> Keep the measurements at the end of the description (updated automatically)</label>
+      <label class="check"><input type="checkbox" id="f-addm" ${it.addMeasures === false ? "" : "checked"}> Fill in the title and measurements for me (kept up to date)</label>
 
       <div class="row2"><button class="btn ghost" data-act="copy">${I("copy")}Copy description</button></div>
       <label class="lbl" for="f-notes">Private notes</label>
@@ -1272,10 +1274,18 @@ function useGuess(what) {
 function summaryText(it) { syncDescMeasures(it); return (it.description || "").trim(); }
 // The measurements live at the end of the description itself, and are rewritten whenever they change.
 const MEASURE_BLOCK = /\n*Measurements \(laid flat\):\n?(?:• [^\n]*(?:\n|$))*/;
+const realTitle = it => (it.name && it.name.trim() && it.name !== "Untitled garment") ? it.name.trim() : "";
 function syncDescMeasures(it) {
   if (!it) return false;
   const before = it.description || "";
   let text = before.replace(MEASURE_BLOCK, "").replace(/\s+$/, "");
+  // Start the description with the title. Keep that first line in step with the title until it's edited by hand.
+  const title = realTitle(it), lines = text.split("\n"), first = lines[0].trim();
+  if (it.addMeasures !== false && title && (!text.trim() || (it.descTitle && first === it.descTitle))) {
+    lines[0] = title; text = lines.join("\n"); it.descTitle = title;
+  } else if (!title && it.descTitle && first === it.descTitle) {
+    lines.shift(); text = lines.join("\n").replace(/^\s+/, ""); it.descTitle = "";
+  }
   const block = it.addMeasures === false ? "" : measureText(it);
   if (block) text = text ? text + "\n\n" + block : block;
   if (text === before) return false;
@@ -1763,6 +1773,7 @@ app.addEventListener("input", e => {
     it.name = t.value.trim() ? t.value : (t.id === "f-title" ? "Untitled garment" : t.value);
     const other = $(t.id === "f-name" ? "#f-title" : "#f-name");
     if (other) other.value = t.id === "f-name" ? (it.name === "Untitled garment" ? "" : it.name) : it.name;
+    renderDescPreview();
     const tc = $("#title-count"); if (tc) tc.textContent = `${(it.name === "Untitled garment" ? "" : it.name).length}/80 for eBay`;
     scheduleSave(it);
   }
