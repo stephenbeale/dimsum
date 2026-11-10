@@ -257,7 +257,40 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-10.1";
+const APP_VERSION = "2026-11-10.2";
+// ---------- usage counting (GoatCounter) ----------
+// Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
+// Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
+const GOATCOUNTER = "";
+const COUNT_Q = "dimsum.countQueue", COUNT_OFF = "dimsum.noCount";
+const countingOn = () => { try { return !!GOATCOUNTER && localStorage.getItem(COUNT_OFF) !== "1"; } catch { return !!GOATCOUNTER; } };
+function countQueue() { try { return JSON.parse(localStorage.getItem(COUNT_Q) || "[]"); } catch { return []; } }
+function saveCountQueue(q) { try { localStorage.setItem(COUNT_Q, JSON.stringify(q.slice(-200))); } catch {} }
+const countedOnce = new Set();
+function track(name, once = false) {
+  if (!countingOn()) return;
+  if (once) { if (countedOnce.has(name + once)) return; countedOnce.add(name + once); }
+  const q = countQueue(); q.push({ p: name, e: name !== "/" }); saveCountQueue(q); flushCounts();
+}
+let countFlushing = false;
+async function flushCounts() {
+  if (!countingOn() || countFlushing || !navigator.onLine) return;
+  countFlushing = true;
+  try {
+    let q = countQueue();
+    while (q.length) {
+      const ev = q[0], u = new URL(`https://${GOATCOUNTER}.goatcounter.com/count`);
+      u.searchParams.set("p", ev.p);
+      u.searchParams.set("t", ev.e ? ev.p.replace(/-/g, " ") : "Dimsum");
+      if (ev.e) u.searchParams.set("e", "true");
+      u.searchParams.set("s", `${screen.width},${screen.height},${window.devicePixelRatio || 1}`);
+      u.searchParams.set("rnd", Math.random().toString(36).slice(2));
+      await fetch(u, { mode: "no-cors", keepalive: true, cache: "no-store" });
+      q.shift(); saveCountQueue(q);
+    }
+  } catch {} finally { countFlushing = false; }
+}
+window.addEventListener("online", flushCounts);
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
@@ -557,6 +590,7 @@ async function ingest(files, target) {
       photos.push(p);
     }
     if (isNew && photos.length > 1) {
+      track("sort-screen");
       setStatus("");
       startSort(photos, files);
       return;
@@ -569,6 +603,7 @@ async function ingest(files, target) {
       if (fg) ni.guess = { source: "name", type: fg };
       await writeItem(ni);
       setStatus("");
+      track("garment-created");
       open(ni.id, true, ni);
       if (S.canImages) suggestListing(true);
     } else {
@@ -830,6 +865,11 @@ function renderList() {
         <h2>Where your garments are kept</h2>
         <p class="note" style="margin:0">On this device only, in this browser. Nothing is uploaded. On iPhone, add Dimsum to your Home Screen (Share, then Add to Home Screen) and use it from there: Safari deletes a website's saved data after 7 days without a visit, but Home Screen apps keep theirs.</p>
       </section>
+      ${GOATCOUNTER ? `<section class="panel">
+        <h2>Usage counts</h2>
+        <p class="note" style="margin:0">To see whether Dimsum is useful, it counts which steps get used, such as "garment created" or "photos downloaded", without cookies and without anything that identifies you. Your photos, measurements, titles and descriptions never leave this device. Counts go to GoatCounter, a privacy-friendly analytics service.</p>
+        <label class="check"><input type="checkbox" id="f-count" ${countingOn() ? "checked" : ""}> Share anonymous usage counts</label>
+      </section>` : ""}
     </div>
     <p class="note" style="margin-top:20px">Dimsum version ${APP_VERSION}</p>`;
   drawThumbs();
@@ -1324,9 +1364,16 @@ function copyString(txt, ok, empty) {
   try { navigator.clipboard.writeText(txt).then(() => toast(ok), fallback); } catch { fallback(); }
   return true;
 }
-function copyText() { copyString(summaryText(S.cur), "Copied. Paste it into your listing description.", "Add a description or a measurement first."); }
+function copyText() { track("description-copied"); copyString(summaryText(S.cur), "Copied. Paste it into your listing description.", "Add a description or a measurement first."); }
+document.addEventListener("change", e => {
+  if (e.target.id !== "f-count") return;
+  try { e.target.checked ? localStorage.removeItem(COUNT_OFF) : localStorage.setItem(COUNT_OFF, "1"); } catch {}
+  if (!e.target.checked) saveCountQueue([]);
+  toast(e.target.checked ? "Thanks, usage counts are on" : "Usage counts are off");
+});
 document.addEventListener("click", e => {
   const a = e.target.closest("a[data-golist]"); if (!a || !S.cur) return;
+  track("open-" + a.dataset.golist);
   const txt = summaryText(S.cur);
   if (txt) copyString(txt, `Description copied. Paste it into ${a.dataset.golist === "ebay" ? "eBay" : "Vinted"}.`, "");
 });
@@ -1431,6 +1478,8 @@ async function saveListing(all, mode = "save") {
   }
   catch (e) { setStatus(""); toast(e.message || "Couldn't make the photos."); return; }
   setStatus("");
+  track("photos-downloaded-" + S.exp.shape);
+  if (S.exp.clean) track("clean-copies");
   if (mode === "share") await shareFiles(files); else downloadFiles(files);
 }
 async function shareFiles(files) {
@@ -1635,6 +1684,7 @@ async function createFromSort() {
   }
   for (const x of st.photos) URL.revokeObjectURL(x.url);
   S.sort = null;
+  made.forEach(() => track("garment-created"));
   if (made.length === 1) { open(made[0].id, true, made[0]); if (S.canImages) suggestListing(true); }
   else if (made.length) { S.batch = { ids: made.map(x => x.id) }; openBatch(0); }
   else { S.view = "list"; render(); }
@@ -1751,6 +1801,7 @@ app.addEventListener("change", e => {
 function parseNum(str) { const v = parseFloat(String(str).replace(",", ".").replace(/[^0-9.]/g, "")); return v > 0 ? v : null; }
 function setActual(it, t) {
   const m = it.measures.find(m => m.id === t.dataset.actVal); if (!m) return;
+  if (t.value.trim()) track("measurement-entered", it.id);
   const v = parseNum(t.value); m.actual = v ? fromUnit(v, it.unit) : null;
   for (const el of document.querySelectorAll(`[data-act-val="${m.id}"]`)) if (el !== t && el.value !== t.value) el.value = t.value;
   draw(); updateValues(); scheduleSave(it);
@@ -1819,12 +1870,13 @@ app.addEventListener("click", e => {
   else if (act === "saveall") saveListing(true);
   else if (act === "shareall") saveListing(true, "share");
   else if (act === "shareready") { const f = S.ready; S.ready = null; renderReady(); shareFiles(f); }
-  else if (act === "copytitle") copyString(it.name && it.name !== "Untitled garment" ? it.name : "", "Title copied", "Give the garment a title first.");
+  else if (act === "copytitle") track("title-copied"), copyString(it.name && it.name !== "Untitled garment" ? it.name : "", "Title copied", "Give the garment a title first.");
   else if (act === "saveone") saveListing(false);
   else if (act === "auto") autoPlace();
-  else if (act === "faces") findFaces();
+  else if (act === "faces") { track("find-faces"); findFaces(); }
   else if (act === "resetlines") { for (const id of Object.keys(ph.lines)) { const m = it.measures.find(m => m.id === id); if (m) ph.lines[id] = defaultLine(it, m); } ph.linesMoved = false; S.sel = null; draw(); updateValues(); scheduleSave(it); toast("Lines put back in their starting places"); }
   else if (act === "rot-l" || act === "rot-r") {
+    track("rotate");
     if (it.example) { toast("The example photos can't be rotated."); return; }
     b.disabled = true;
     rotatePhoto(it, ph, act === "rot-l" ? 270 : 90).then(() => {
@@ -1850,6 +1902,7 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) flush
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 }
+track("/");
 S.example = makeExample();
 render();
 initStore();
