@@ -196,11 +196,18 @@ label.check input{width:18px;height:18px}
 .iconbtn:hover{background:rgba(22,32,42,.92)}
 .iconbtn svg{width:22px;height:22px}
 .iconbtn[disabled]{opacity:.5}
-.quickdims{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.quickdims{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+.qtools{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.qstyle{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.qstyle .lbl{margin:0}
 .qd{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 6px 4px 10px;min-width:0;cursor:text}
 .qd .qn{font-weight:600;font-size:14px;white-space:nowrap}
 .qd .qnum{width:62px;min-height:36px;padding:4px 8px;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
-.qd{flex-wrap:wrap}
+/* Each box: name on top, then the number box, its unit and the eye button underneath, so two fit side by side on a phone. */
+.qd{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;grid-template-areas:"sw qn qn qn" "num num qu eye";column-gap:6px;row-gap:4px;align-items:center;padding:6px 6px 8px 10px}
+.qd .sw{grid-area:sw}.qd .qn{grid-area:qn;min-width:0;white-space:normal;line-height:1.2;overflow-wrap:break-word}.qd .qeye{grid-area:eye;margin:0}
+.qd .qnum{grid-area:num;width:100%;min-width:0}.qd .qu{grid-area:qu;padding-right:4px}
+.qd .note{grid-column:1/-1}
 .qd .qu{color:var(--muted);font-size:14px}
 .qd .qeye{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;margin:-2px -4px -2px 0;border:0;background:none;color:var(--muted);border-radius:8px;cursor:pointer;padding:0}
 .qd .qeye svg{width:20px;height:20px}
@@ -331,7 +338,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.31";
+const APP_VERSION = "2026-11-15.32";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -1333,9 +1340,11 @@ function renderQuick() {
   const ph = curPhoto(), lineable = !!ph && !isLabelRole(ph.role) && !ph.hideLines;
   const sizeBox = ["shoes", "other"].includes(it.type) ? `<label class="qd" for="q-size"><span class="qn">Size</span><input class="qnum" type="text" autocomplete="off" enterkeyhint="next" id="q-size" data-size-text value="${esc(it.sizeText || "")}" placeholder="${it.type === "shoes" ? "UK 9" : "e.g. M"}" style="width:110px;text-align:left" aria-label="Size"></label>` : "";
   el.innerHTML = sizeBox + it.measures.map((m, i) => `<label class="qd${lineable && !ph.lines[m.id] ? " off" : ""}" for="q-${m.id}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span><span class="qn">${esc(m.label)}</span><input class="qnum" type="text" inputmode="${m.key === "head" ? "text" : "decimal"}" autocomplete="off" enterkeyhint="next" id="q-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${m.key === "head" ? "57 or 7⅛" : "–"}" aria-label="${esc(m.label)} in ${u}"><span class="qu">${u}</span>${lineable ? `<button type="button" class="qeye" data-lineon="${m.id}" aria-pressed="${ph.lines[m.id] ? "true" : "false"}" aria-label="${ph.lines[m.id] ? "Hide" : "Show"} the ${esc(m.label)} line on this photo" title="${ph.lines[m.id] ? "Hide" : "Show"} this line">${I(ph.lines[m.id] ? "eye" : "eyeoff")}</button>` : ""}${m.key === "head" ? `<span class="note" data-hat="${m.id}" style="flex-basis:100%">${m.actual > 0 ? `= ${n1(m.actual)} cm · UK ${hatSizes(m.actual).uk} · US ${hatSizes(m.actual).us}` : "cm, inches, or a hat size like 7½"}</span>` : ""}</label>`).join("")
+    + `<div class="qtools">`
+    + (lineable ? `<div class="qstyle"><span class="lbl">Line style</span><div class="seg lstyle" role="group" aria-label="Line style">${[["solid", "Solid"], ["dashed", "Dashed"], ["dotted", "Dotted"]].map(([v, t]) => `<button data-lstyle="${v}" aria-pressed="${(it.lineStyle || "solid") === v}">${t}</button>`).join("")}</div></div>` : "")
     + (curPhoto() && !isLabelRole(curPhoto().role) ? `<button class="btn ghost" data-act="togglelines" style="min-height:44px">${I(curPhoto().hideLines ? "eye" : "eyeoff")}${curPhoto().hideLines ? "Show lines" : "Hide all lines"}</button>` : "")
-    + (lineable ? `<div class="seg lstyle" role="group" aria-label="Line style">${[["solid", "Solid"], ["dashed", "Dashed"], ["dotted", "Dotted"]].map(([v, t]) => `<button data-lstyle="${v}" aria-pressed="${(it.lineStyle || "solid") === v}">${t}</button>`).join("")}</div>` : "")
-    + (curPhoto() && !isLabelRole(curPhoto().role) && !curPhoto().hideLines && Object.keys(curPhoto().lines).length ? `<button class="btn ghost" data-act="resetlines" style="min-height:44px">${I("prev")}Reset lines</button>` : "");
+    + (curPhoto() && !isLabelRole(curPhoto().role) && !curPhoto().hideLines && Object.keys(curPhoto().lines).length ? `<button class="btn ghost" data-act="resetlines" style="min-height:44px">${I("prev")}Reset lines</button>` : "")
+    + `</div>`;
 }
 function updateValues() {
   renderDescPreview();
