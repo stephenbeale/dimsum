@@ -331,7 +331,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.27";
+const APP_VERSION = "2026-11-15.28";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -1243,6 +1243,29 @@ function renderSide() {
       <div class="note">Opening Vinted or eBay copies the description and measurements first, ready to paste. Then add the photos you saved. To copy the title or description separately, use the buttons under Listing text.</div>
     </section>`;
   $("#side").innerHTML = `
+    <section class="panel" data-pkey="text">
+      <h2>Listing text</h2>
+      ${guessHTML(it)}
+      <span class="lbl">Condition</span>
+      <div class="chips condchips" role="group" aria-label="Condition">${CONDITIONS.map(c => `<button data-cond="${esc(c)}" aria-pressed="${(it.condition || []).includes(c)}">${esc(c)}</button>`).join("")}</div>
+      <div class="detailgrid">
+        <label>Brand<input type="text" id="f-brand" value="${esc(it.brand || "")}" placeholder="e.g. Barbour" autocomplete="off"></label>
+        <label>Size on label<input type="text" id="f-sizetext" value="${esc(it.sizeText || "")}" placeholder="${esc(sizeOf(it) || (it.type === "shoes" ? "e.g. UK 9 / EU 43" : it.type === "hat" ? "e.g. 58 cm, 7⅛" : "e.g. XL, UK 40, 32R"))}" autocomplete="off"></label>
+        <label>Material<input type="text" id="f-material" value="${esc(it.material || "")}" placeholder="e.g. 80% wool" autocomplete="off"></label>
+      </div>
+      <label class="lbl" for="f-title">Title</label>
+      <input type="text" id="f-title" value="${esc(it.name === "Untitled garment" ? "" : it.name)}" placeholder="Brand, item, colour, size" maxlength="${TITLE_MAX}">
+      <div class="row2"><button class="btn ghost" data-act="copytitle">${I("copy")}Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/${TITLE_MAX} (eBay shows 80)</span></div>
+      <label class="lbl" for="f-desc">Description</label>
+      <textarea id="f-desc" placeholder="What buyers read: brand, colour, fabric, condition…">${esc(it.description || "")}</textarea>
+      <span class="lbl">In the description</span>
+      <div class="descparts">${DESC_PARTS.map(([k, l]) => `<label class="check"><input type="checkbox" data-descpart="${k}" ${inDesc(it, k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
+
+      <div class="row2"><button class="btn ghost" data-act="copy">${I("copy")}Copy description</button></div>
+      <label class="lbl" for="f-notes">Private notes</label>
+      <textarea id="f-notes" placeholder="Just for you: where you bought it, price paid…">${esc(it.notes || "")}</textarea>
+      ${it.example ? "" : `<div class="row2"><button class="btn ghost danger" data-act="delete" id="btn-del">${I("trash")}Delete garment</button></div>`}
+    </section>
     ${ph ? `<section class="panel" data-pkey="photo">
       <h2>This photo</h2>
       <div class="row2">
@@ -1278,29 +1301,6 @@ function renderSide() {
       <div class="chips">${tpl.map(t => `<button data-addm="${t.key}">+ ${esc(t.label)}</button>`).join("")}<button data-addm="">+ Custom</button></div>
       ${ph && !isLabelRole(ph.role) && Object.keys(ph.lines).length ? `<div class="row2"><button class="btn ghost" data-act="resetlines">${I("prev")}Reset lines on this photo</button></div>` : ""}
       <div class="note">Type values in the boxes under the photo; the eye button there shows or hides each line. Tap a name here to see how to measure it, or to remove it.</div>
-    </section>
-    <section class="panel" data-pkey="text">
-      <h2>Listing text</h2>
-      ${guessHTML(it)}
-      <span class="lbl">Condition</span>
-      <div class="chips condchips" role="group" aria-label="Condition">${CONDITIONS.map(c => `<button data-cond="${esc(c)}" aria-pressed="${(it.condition || []).includes(c)}">${esc(c)}</button>`).join("")}</div>
-      <div class="detailgrid">
-        <label>Brand<input type="text" id="f-brand" value="${esc(it.brand || "")}" placeholder="e.g. Barbour" autocomplete="off"></label>
-        <label>Size on label<input type="text" id="f-sizetext" value="${esc(it.sizeText || "")}" placeholder="${esc(sizeOf(it) || (it.type === "shoes" ? "e.g. UK 9 / EU 43" : it.type === "hat" ? "e.g. 58 cm, 7⅛" : "e.g. XL, UK 40, 32R"))}" autocomplete="off"></label>
-        <label>Material<input type="text" id="f-material" value="${esc(it.material || "")}" placeholder="e.g. 80% wool" autocomplete="off"></label>
-      </div>
-      <label class="lbl" for="f-title">Title</label>
-      <input type="text" id="f-title" value="${esc(it.name === "Untitled garment" ? "" : it.name)}" placeholder="Brand, item, colour, size" maxlength="${TITLE_MAX}">
-      <div class="row2"><button class="btn ghost" data-act="copytitle">${I("copy")}Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/${TITLE_MAX} (eBay shows 80)</span></div>
-      <label class="lbl" for="f-desc">Description</label>
-      <textarea id="f-desc" placeholder="What buyers read: brand, colour, fabric, condition…">${esc(it.description || "")}</textarea>
-      <span class="lbl">In the description</span>
-      <div class="descparts">${DESC_PARTS.map(([k, l]) => `<label class="check"><input type="checkbox" data-descpart="${k}" ${inDesc(it, k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
-
-      <div class="row2"><button class="btn ghost" data-act="copy">${I("copy")}Copy description</button></div>
-      <label class="lbl" for="f-notes">Private notes</label>
-      <textarea id="f-notes" placeholder="Just for you: where you bought it, price paid…">${esc(it.notes || "")}</textarea>
-      ${it.example ? "" : `<div class="row2"><button class="btn ghost danger" data-act="delete" id="btn-del">${I("trash")}Delete garment</button></div>`}
     </section>
     ${ph ? `<section class="panel" data-pkey="estimate">
       <h2>No tape measure? Estimate from the photo</h2>
