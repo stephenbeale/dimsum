@@ -185,6 +185,7 @@ label.check input{width:18px;height:18px}
 .qd .qeye svg{width:20px;height:20px}
 .qd .qeye:hover{background:var(--line)}
 .qd.off .sw{opacity:.25}
+.seg.lstyle button{min-height:44px}
 .qd.off .qn{color:var(--muted);text-decoration:line-through}
 .qd.flash{border-color:var(--tape);box-shadow:0 0 0 3px var(--tape)}
 @media (prefers-reduced-motion:no-preference){.qd{transition:box-shadow .3s,border-color .3s}}
@@ -309,7 +310,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.20";
+const APP_VERSION = "2026-11-15.21";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -561,7 +562,7 @@ function normalize(raw) {
 }
 function toDoc(it) {
   return {
-    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", descOff: it.descOff || [], createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
+    name: it.name, type: it.type, unit: it.unit, lineStyle: it.lineStyle || "solid", notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", descOff: it.descOff || [], createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
     photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, offLines: p.offLines || null, hideLines: !!p.hideLines, detailsPos: p.detailsPos || null, detailsScale: p.detailsScale || null, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
   };
@@ -921,11 +922,13 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
     ctx.globalAlpha = L.empty && !sel ? .45 : 1;
     const ax = L.l.a[0] * W, ay = L.l.a[1] * H, bx = L.l.b[0] * W, by = L.l.b[1] * H;
     const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
-    const lw = (sel ? 3.5 : 2.5) * k, tick = 9 * k;
+    const lw = (sel ? 3.5 : 2.5) * k * (it.lineStyle === "dotted" && !L.ref ? 1.5 : 1), tick = 9 * k;
     ctx.lineCap = "round";
+    // Line style per garment: dotted or dashed lines stand out better on stripes and busy patterns.
+    const style = L.ref ? "" : it.lineStyle, dash = style === "dotted" ? [0.01, lw * 2.6] : style === "dashed" ? [lw * 4, lw * 2.6] : [];
     for (const pass of [0, 1]) {
       ctx.strokeStyle = pass ? L.color : "rgba(0,0,0,.55)"; ctx.lineWidth = pass ? lw : lw + 3 * k;
-      ctx.setLineDash(L.ref && pass ? [8 * k, 6 * k] : []);
+      ctx.setLineDash(L.ref && pass ? [8 * k, 6 * k] : dash);
       ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(ax - nx * tick, ay - ny * tick); ctx.lineTo(ax + nx * tick, ay + ny * tick);
       ctx.moveTo(bx - nx * tick, by - ny * tick); ctx.lineTo(bx + nx * tick, by + ny * tick); ctx.stroke();
@@ -938,11 +941,14 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
     pills.push({ L, ax, ay, bx, by, horiz: Math.abs(dx) > Math.abs(dy), sel });
   }
   ctx.globalAlpha = 1;
-  ctx.font = `600 ${12.5 * kt}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textBaseline = "middle";
+  ctx.textBaseline = "middle";
   // Each label sits at a point along its line (l.t, 0 to 1). Labels nobody has moved slide aside to avoid overlapping.
   const placed = [...reserved], overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   for (const p of pills) {
-    const tw = ctx.measureText(p.L.text).width, ph2 = 22 * kt, pw = tw + 14 * kt;
+    // Each label can be resized on its own (l.s), by dragging the dot on its corner while it's selected.
+    const kp = kt * (p.L.l.s || 1);
+    ctx.font = `600 ${12.5 * kp}px "IBM Plex Mono", ui-monospace, monospace`;
+    const tw = ctx.measureText(p.L.text).width, ph2 = 22 * kp, pw = tw + 14 * kp;
     const at = t => {
       const mx = p.ax + (p.bx - p.ax) * t, my = p.ay + (p.by - p.ay) * t;
       const x = clamp(mx - pw / 2, V.x + 2 * kt, V.x + V.w - pw - 2 * kt), y = clamp(my - ph2 / 2 - (p.horiz ? ph2 * .5 + 5 * kt : 0), V.y + 2 * kt, V.y + V.h - ph2 - 2 * kt);
@@ -955,10 +961,11 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
     }
     placed.push(r);
     ctx.globalAlpha = p.L.empty && !p.sel ? .7 : 1;
-    roundRect(ctx, r.x, r.y, r.w, r.h, 5 * kt); ctx.fillStyle = p.L.color; ctx.fill();
+    roundRect(ctx, r.x, r.y, r.w, r.h, 5 * kp); ctx.fillStyle = p.L.color; ctx.fill();
     if (p.sel) { ctx.lineWidth = 2 * kt; ctx.strokeStyle = "#111"; ctx.stroke(); }
-    ctx.fillStyle = "#111"; ctx.fillText(p.L.text, r.x + 7 * kt, r.y + ph2 / 2 + .5 * kt);
+    ctx.fillStyle = "#111"; ctx.fillText(p.L.text, r.x + 7 * kp, r.y + ph2 / 2 + .5 * kp);
     ctx.globalAlpha = 1;
+    if (opt.handles && p.sel && !p.L.ref) { ctx.beginPath(); ctx.arc(r.x + r.w, r.y + r.h, 8 * k, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = 2 * k; ctx.strokeStyle = "#111"; ctx.stroke(); }
     if (opt.pillsOut) opt.pillsOut.push({ id: p.L.id, l: p.L.l, ...r });
   }
   if (drawDetails) drawDetails();
@@ -1121,7 +1128,7 @@ function renderEditor() {
           ${it.example ? "" : `<div class="rotbar"><button class="iconbtn" data-act="rot-l" aria-label="Rotate left" title="Rotate left">${ICON_ROT_L}</button><button class="iconbtn" data-act="rot-r" aria-label="Rotate right" title="Rotate right">${ICON_ROT_R}</button></div>`}
           <button class="iconbtn dlbtn" data-act="saveone" aria-label="Download this photo" title="Download this photo">${I("download")}</button></div></div>
         <div class="quickdims" id="quickdims"></div>
-        <p class="hint">Tap a label to type its measurement. Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. Drag the brand and size box to move it; tap it to show a corner dot for resizing. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
+        <p class="hint">Tap a label to type its measurement. Drag a dot to move one end, a label to slide it along its line (tap a label, then drag its corner dot to resize it), or the middle of a line to move all of it. Drag the brand and size box to move it; tap it to show a corner dot for resizing. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
         : `<div class="stage"><div class="emptystage"><strong>No photos yet</strong><span>Add the front first, then the back and label.</span>
             <div class="row2" style="justify-content:center"><button class="btn primary" data-pick="cam" data-target="add">${ICON_CAM}Take photo</button><button class="btn" data-pick="lib" data-target="add">${ICON_IMG}Choose photos</button></div></div></div>`}
       </div>
@@ -1276,6 +1283,7 @@ function renderQuick() {
   const sizeBox = ["shoes", "other"].includes(it.type) ? `<label class="qd" for="q-size"><span class="qn">Size</span><input class="qnum" type="text" autocomplete="off" enterkeyhint="next" id="q-size" data-size-text value="${esc(it.sizeText || "")}" placeholder="${it.type === "shoes" ? "UK 9" : "e.g. M"}" style="width:110px;text-align:left" aria-label="Size"></label>` : "";
   el.innerHTML = sizeBox + it.measures.map((m, i) => `<label class="qd${lineable && !ph.lines[m.id] ? " off" : ""}" for="q-${m.id}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span><span class="qn">${esc(m.label)}</span><input class="qnum" type="text" inputmode="${m.key === "head" ? "text" : "decimal"}" autocomplete="off" enterkeyhint="next" id="q-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${m.key === "head" ? "57 or 7⅛" : "–"}" aria-label="${esc(m.label)} in ${u}"><span class="qu">${u}</span>${lineable ? `<button type="button" class="qeye" data-lineon="${m.id}" aria-pressed="${ph.lines[m.id] ? "true" : "false"}" aria-label="${ph.lines[m.id] ? "Hide" : "Show"} the ${esc(m.label)} line on this photo" title="${ph.lines[m.id] ? "Hide" : "Show"} this line">${I(ph.lines[m.id] ? "eye" : "eyeoff")}</button>` : ""}${m.key === "head" ? `<span class="note" data-hat="${m.id}" style="flex-basis:100%">${m.actual > 0 ? `= ${n1(m.actual)} cm · UK ${hatSizes(m.actual).uk} · US ${hatSizes(m.actual).us}` : "cm, inches, or a hat size like 7½"}</span>` : ""}</label>`).join("")
     + (curPhoto() && !isLabelRole(curPhoto().role) ? `<button class="btn ghost" data-act="togglelines" style="min-height:44px">${I(curPhoto().hideLines ? "eye" : "eyeoff")}${curPhoto().hideLines ? "Show lines" : "Hide all lines"}</button>` : "")
+    + (lineable ? `<div class="seg lstyle" role="group" aria-label="Line style">${[["solid", "Solid"], ["dashed", "Dashed"], ["dotted", "Dotted"]].map(([v, t]) => `<button data-lstyle="${v}" aria-pressed="${(it.lineStyle || "solid") === v}">${t}</button>`).join("")}</div>` : "")
     + (curPhoto() && !isLabelRole(curPhoto().role) && !curPhoto().hideLines && Object.keys(curPhoto().lines).length ? `<button class="btn ghost" data-act="resetlines" style="min-height:44px">${I("prev")}Reset lines</button>` : "");
 }
 function updateValues() {
@@ -1309,6 +1317,8 @@ function setupCanvas() {
   function hit(p, touch) {
     const R = touch ? 26 : 14; let best = null;
     const ls = lines().sort((a, b) => (b.id === S.sel) - (a.id === S.sel));
+    const sp = S.sel && S.sel !== "ref" && (CV.pills || []).find(q => q.id === S.sel);
+    if (sp && Math.hypot(sp.x + sp.w - p.x, sp.y + sp.h - p.y) < R) return { id: sp.id, l: sp.l, end: "presize", w0: sp.w, s0: sp.l.s || 1 };
     for (const L of ls) for (const end of ["a", "b"]) {
       const d = Math.hypot(L.l[end][0] * CV.w - p.x, L.l[end][1] * CV.h - p.y);
       if (d < R && (!best || d < best.d - (L.id === S.sel ? 4 : 0))) best = { id: L.id, l: L.l, end, d };
@@ -1368,6 +1378,8 @@ function setupCanvas() {
       const nw = Math.max(20, d.d0.w + (p.x - d.start.x));
       ph.detailsScale = clamp(d.s0 * nw / d.d0.w, 0.6, 3);
       if (!ph.detailsPos) ph.detailsPos = [d.d0.x / CV.w, d.d0.y / CV.h];
+    } else if (d.end === "presize") {
+      d.l.s = clamp(d.s0 * Math.max(20, d.w0 + (p.x - d.start.x)) / d.w0, 0.6, 3);
     } else if (d.end === "label") {
       const ax = d.l.a[0] * CV.w, ay = d.l.a[1] * CV.h, ex = d.l.b[0] * CV.w - ax, ey = d.l.b[1] * CV.h - ay;
       d.l.t = clamp(((p.x - ax) * ex + (p.y - ay) * ey) / (ex * ex + ey * ey || 1), 0.03, 0.97);
@@ -2243,6 +2255,7 @@ app.addEventListener("click", e => {
   if (b.dataset.photo !== undefined) { S.pi = +b.dataset.photo; S.sel = null; renderEditor(); return; }
   if (b.dataset.sel) { S.sel = S.sel === b.dataset.sel ? null : b.dataset.sel; renderSide(); draw(); return; }
   if (b.dataset.size) { it.size = it.size === b.dataset.size ? "" : b.dataset.size; renderSide(); draw(); scheduleSave(it); return; }
+  if (b.dataset.lstyle) { it.lineStyle = b.dataset.lstyle; renderQuick(); draw(); scheduleSave(it); return; }
   if (b.dataset.fit) { it.fit = it.fit === b.dataset.fit ? "" : b.dataset.fit; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.cond) {
     const c = b.dataset.cond, cur = new Set(it.condition || []);
