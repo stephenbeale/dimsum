@@ -279,12 +279,19 @@ const TEMPLATES = {
     T("brim", "Brim", [.15,.72], [.35,.8], "From where the brim meets the crown out to its edge.", true),
     T("crown", "Crown height", [.5,.22], [.5,.6], "From the band up to the top of the crown.", true),
   ]},
+  shoes: { name: "Shoes / boots", measures: [
+    T("insole", "Insole length", [.22,.52], [.82,.52], "Inside the shoe, from the back of the heel to the tip of the toe. Buyers check this most, as sizes vary between brands."),
+    T("outsole", "Outsole length", [.1,.8], [.92,.8], "Along the bottom of the sole, from heel to toe.", true),
+    T("solewidth", "Sole width", [.66,.62], [.66,.88], "Across the widest part of the sole.", true),
+    T("heel", "Heel height", [.14,.7], [.14,.88], "At the back, from the ground to the top of the heel.", true),
+    T("shaft", "Shaft height", [.3,.12], [.3,.68], "For boots: from the top of the sole to the top of the boot.", true),
+  ]},
   other: { name: "Something else", measures: [] },
 };
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.7";
+const APP_VERSION = "2026-11-15.8";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -318,10 +325,10 @@ async function flushCounts() {
   } catch {} finally { countFlushing = false; }
 }
 window.addEventListener("online", flushCounts);
-const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
+const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"], shoes: ["Narrow", "Standard", "Wide"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
 const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"], hat: ["XS", "S", "M", "L", "XL", "XXL"] };
-const isFlat = it => it.type !== "hat";
+const isFlat = it => it.type !== "hat" && it.type !== "shoes";
 // Hat sizes: US size is the head circumference in inches divided by pi, to the nearest eighth; UK sizes run an eighth smaller.
 const FRAC = { 0: "", 1: "⅛", 2: "¼", 3: "⅜", 4: "½", 5: "⅝", 6: "¾", 7: "⅞" };
 const eighths = v => { const t = Math.round(v * 8); return Math.floor(t / 8) + FRAC[t % 8]; };
@@ -348,7 +355,7 @@ function detailsOf(it) {
   const head = it.measures.find(m => m.key === "head" && m.actual > 0);
   const size = (it.sizeText || "").trim() || sizeOf(it) || (head ? "UK " + hatSizes(head.actual).uk : "");
   if (size) d.push(["Size", size]);
-  if (fitOf(it)) d.push(["Fit", fitOf(it)]);
+  if (fitOf(it)) d.push([it.type === "shoes" ? "Width" : "Fit", fitOf(it)]);
   if ((it.material || "").trim()) d.push(["Material", it.material.trim()]);
   return d;
 }
@@ -1137,7 +1144,7 @@ function renderSide() {
       ${ph && !isLabelRole(ph.role) && S.canImages ? `<div class="row2"><button class="btn" data-act="auto" id="btn-auto">${I("spark")}Place lines with Claude</button></div><div class="ai-status" id="ai-status">Sends this ${esc(role)} photo to Claude, which moves the ticked lines onto the seams. Check them before you save.</div>` : ph ? `<div class="note">Drag the dots onto the seams. Add a Claude API key on the wardrobe page to have Claude place them for you.</div>` : ""}
       <div class="mlist">${mrows || `<div class="note" style="padding:6px">No measurements yet. Add one below.</div>`}</div>
       ${SIZES[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Size</span><div class="seg" role="group" aria-label="Size">${SIZES[it.type].map(f => `<button data-size="${f}" aria-pressed="${it.size === f}">${f}</button>`).join("")}</div></div>` : ""}
-      ${FITS[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">Fit</span><div class="seg" role="group" aria-label="Fit">${FITS[it.type].map(f => `<button data-fit="${f}" aria-pressed="${it.fit === f}">${f}</button>`).join("")}</div></div>` : ""}
+      ${FITS[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">${it.type === "shoes" ? "Width" : "Fit"}</span><div class="seg" role="group" aria-label="Fit">${FITS[it.type].map(f => `<button data-fit="${f}" aria-pressed="${it.fit === f}">${f}</button>`).join("")}</div></div>` : ""}
       <div class="chips">${tpl.map(t => `<button data-addm="${t.key}">+ ${esc(t.label)}</button>`).join("")}<button data-addm="">+ Custom</button></div>
       ${ph && !isLabelRole(ph.role) && Object.keys(ph.lines).length ? `<div class="row2"><button class="btn ghost" data-act="resetlines">${I("prev")}Reset lines on this photo</button></div>` : ""}
       <div class="note">Values belong to the garment; the tick shows each line on this photo. Tap a name to see where to measure it.</div>
@@ -1147,7 +1154,7 @@ function renderSide() {
       ${guessHTML(it)}
       <div class="detailgrid">
         <label>Brand<input type="text" id="f-brand" value="${esc(it.brand || "")}" placeholder="e.g. Barbour" autocomplete="off"></label>
-        <label>Size on label<input type="text" id="f-sizetext" value="${esc(it.sizeText || "")}" placeholder="${esc(sizeOf(it) || "e.g. XL, UK 40, 32R")}" autocomplete="off"></label>
+        <label>Size on label<input type="text" id="f-sizetext" value="${esc(it.sizeText || "")}" placeholder="${esc(sizeOf(it) || (it.type === "shoes" ? "e.g. UK 9 / EU 43" : it.type === "hat" ? "e.g. 58 cm, 7⅛" : "e.g. XL, UK 40, 32R"))}" autocomplete="off"></label>
         <label>Material<input type="text" id="f-material" value="${esc(it.material || "")}" placeholder="e.g. 80% wool" autocomplete="off"></label>
       </div>
       <label class="lbl" for="f-title">Title</label>
@@ -1381,6 +1388,7 @@ function draw() {
 
 // ---------- guesses: type from file names; title, type and description from the photos ----------
 const NAME_WORDS = [
+  ["shoes", /\bshoes?\b|\bboots?\b|trainers?|sneakers?|loafers?|brogues?|sandals?|\bheels\b|oxfords?|derbys?|chelsea|espadrilles?|plimsolls?|mules?\b/],
   ["hat", /\bhat\b|\bcap\b|beanie|beret|fedora|trilby|deerstalker|bucket hat|panama/],
   ["coat", /coat|jacket|blazer|parka|anorak|gilet|bomber|trench|mac\b|waxed|puffer|overshirt/],
   ["knit", /jumper|sweater|cardigan|knit|hoodie|sweatshirt|pullover|fleece/],
@@ -1396,7 +1404,7 @@ function guessFromNames(names) {
 }
 function setType(it, type) {
   it.type = type;
-  if (type === "hat" && !it.measures.some(m => m.actual > 0)) it.unit = "cm";
+  if ((type === "hat" || type === "shoes") && !it.measures.some(m => m.actual > 0)) it.unit = "cm";
   if (!it.measures.some(m => m.touched || m.actual > 0)) {
     it.measures = freshMeasures(type);
     it.photos.forEach((p, i) => p.lines = i === 0 ? defaultLines(it) : {});
@@ -1514,8 +1522,9 @@ function bothUnits(cm, unit) {
 }
 function measureText(it) {
   const rows = [];
-  if (sizeOf(it)) rows.push(`• Size: ${sizeOf(it)} 🏷️`);
-  if (fitOf(it)) rows.push(`• Fit: ${fitOf(it)} 👖`);
+  const sz = (it.sizeText || "").trim() || sizeOf(it);
+  if (sz) rows.push(`• Size: ${sz} 🏷️`);
+  if (fitOf(it)) rows.push(it.type === "shoes" ? `• Width: ${fitOf(it)} 👟` : `• Fit: ${fitOf(it)} 👖`);
   for (const m of it.measures) {
     const v = bestValue(it, m); if (v.cm == null) continue;
     const hat = m.key === "head" ? ` · UK hat size ${hatSizes(v.cm).uk} (US ${hatSizes(v.cm).us})` : "";
@@ -2035,7 +2044,7 @@ app.addEventListener("input", e => {
   }
   else if (t.id === "f-notes") { it.notes = t.value; scheduleSave(it); }
   else if (t.id === "f-desc") { it.description = t.value; scheduleSave(it); }
-  else if (t.id === "f-brand" || t.id === "f-sizetext" || t.id === "f-material") { it[{ "f-brand": "brand", "f-sizetext": "sizeText", "f-material": "material" }[t.id]] = t.value; draw(); scheduleSave(it); }
+  else if (t.id === "f-brand" || t.id === "f-sizetext" || t.id === "f-material") { it[{ "f-brand": "brand", "f-sizetext": "sizeText", "f-material": "material" }[t.id]] = t.value; draw(); renderDescPreview(); scheduleSave(it); }
   else if (t.id === "f-reflen") { const v = parseFloat(t.value); ph.ref.len = v > 0 ? fromUnit(v, it.unit) : null; draw(); updateValues(); scheduleSave(it); }
   else if (t.dataset.lbl) { const m = it.measures.find(m => m.id === t.dataset.lbl); m.label = t.value; t.closest(".m").querySelector(".mname").textContent = t.value; draw(); scheduleSave(it); }
   else if (t.dataset.actVal) setActual(it, t);
