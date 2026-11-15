@@ -331,7 +331,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.29";
+const APP_VERSION = "2026-11-15.30";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -587,7 +587,7 @@ const TITLE_MAX = 100;
 const clipTitle = t => (t || "").slice(0, TITLE_MAX);
 function toDoc(it) {
   return {
-    name: it.name, type: it.type, unit: it.unit, saveCount: it.saveCount || 0, lineStyle: it.lineStyle || "solid", notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", descOff: it.descOff || [], createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
+    name: it.name, autoName: it.autoName || "", type: it.type, unit: it.unit, saveCount: it.saveCount || 0, lineStyle: it.lineStyle || "solid", notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", descOff: it.descOff || [], createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
     photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, offLines: p.offLines || null, hideLines: !!p.hideLines, detailsPos: p.detailsPos || null, detailsScale: p.detailsScale || null, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
   };
@@ -1625,7 +1625,7 @@ async function suggestListing(auto = false) {
     const prompt = `You are helping someone sell a second-hand clothing item on Vinted and eBay (UK). The photos show it in this order: ${pics.map(p => p.role).join(", ")}.${names.length ? ` The original file names were: ${names.join(", ")}.` : ""}
 Work out what the item is.
 - type: the closest category from the list.
-- title: a listing title of at most 80 characters, in the order Brand, item, key detail, colour, size, e.g. "Barbour Bedale Waxed Jacket Olive Green UK 40". Leave out anything you can't see.
+- title: a listing title of at most 80 characters, in the order Brand and item, key detail, colour, size, with commas between them, e.g. "Barbour Bedale Waxed Jacket, Olive Green, UK 40". Leave out anything you can't see.
 - brand, size, colour, material: only what you can actually read on a label or clearly see. Use an empty string when unsure; never invent a brand, size or fabric.
 - description: 2 to 4 short, plain sentences a buyer would find useful: what it is, style and features you can see (fastening, pockets, lining, hood), fabric and size from the label if legible, and any visible wear. No hype, emojis or hashtags, and leave out measurements (they are added separately).
 - confidence: how sure you are about the brand and item overall.
@@ -1677,7 +1677,7 @@ function renderGuess() {
 }
 function useGuess(what) {
   const it = S.cur, g = it.guess; if (!g) return;
-  if ((what === "title" || what === "all") && g.title) it.name = clipTitle(g.title);
+  if ((what === "title" || what === "all") && g.title) { it.name = clipTitle(g.title); it.autoName = ""; }
   if ((what === "desc" || what === "all") && g.description) { it.description = g.description; syncDescMeasures(it); }
   if ((what === "type" || what === "all") && g.type && g.type !== it.type) setType(it, g.type);
   if (what === "all") { if (g.brand && !it.brand) it.brand = g.brand; if (g.material && !it.material) it.material = g.material; if (g.size && !it.sizeText) it.sizeText = g.size; }
@@ -1765,8 +1765,36 @@ function autoGrow(el) {
 function growAll() { for (const el of document.querySelectorAll("textarea")) autoGrow(el); }
 document.addEventListener("input", e => autoGrow(e.target));
 window.addEventListener("resize", () => requestAnimationFrame(growAll));
+// A starting title built from the details, with commas between them: "Penguin Shirt, Size L, 21" Pit to Pit, 100% Cotton".
+// It keeps itself up to date until you type your own title; clear the title to go back to the automatic one.
+const TYPE_NOUN = { coat: "Jacket", shirt: "Shirt", knit: "Jumper", trousers: "Trousers", skirt: "Skirt", dress: "Dress", hat: "Hat", shoes: "Shoes", other: "" };
+const titleCase = t => t.replace(/\b([a-z])([a-z]*)/g, (w, a, b, i) => i && /^(to|and|of|the|a|in)$/.test(w) ? w : a.toUpperCase() + b);
+function autoTitle(it) {
+  const brand = (it.brand || "").trim(), noun = TYPE_NOUN[it.type] || "";
+  const size = (it.sizeText || sizeOf(it) || "").trim();
+  const sizePart = !size ? "" : /size|^(uk|eu|us|w\d)/i.test(size) ? size : "Size " + size;
+  let measure = "";
+  if (!["hat", "shoes"].includes(it.type)) for (const m of it.measures) {
+    const v = bestValue(it, m); if (v.cm == null || v.kind === "est.") continue;
+    measure = (it.unit === "cm" ? `${n1(v.cm)} cm` : `${n1(v.cm / 2.54)}"`) + " " + titleCase(m.label); break;
+  }
+  const material = (it.material || "").trim();
+  const head = [brand, noun].filter(Boolean).join(" ");
+  if (!brand && !size && !material) return "";
+  return clipTitle([head, sizePart, measure, material].filter(Boolean).join(", "));
+}
+function syncAutoTitle(it) {
+  if (realTitle(it) && it.name !== it.autoName) return;
+  const t = autoTitle(it), name = t || "Untitled garment";
+  it.autoName = t; it.name = name;
+  const ft = $("#f-title"), fn = $("#f-name"), tc = $("#title-count");
+  if (ft && document.activeElement !== ft) ft.value = t;
+  if (fn && document.activeElement !== fn) fn.value = name;
+  if (tc) tc.textContent = `${t.length}/${TITLE_MAX} (eBay shows 80)`;
+}
 function renderDescPreview() {
   const it = S.cur; if (!it || it.example) return;
+  syncAutoTitle(it);
   if (!syncDescMeasures(it)) return;
   const el = $("#f-desc");
   if (el && document.activeElement !== el) { el.value = it.description; autoGrow(el); }
@@ -2288,7 +2316,11 @@ app.addEventListener("focusin", e => {
   }
   S.sel = id; draw();
 });
-app.addEventListener("focusout", e => { const t = e.target; if (S.cur && t.dataset && t.dataset.actVal) { setActual(S.cur, t); flushSave(); } });
+app.addEventListener("focusout", e => {
+  const t = e.target; if (!S.cur) return;
+  if (t.dataset && t.dataset.actVal) { setActual(S.cur, t); flushSave(); }
+  if (t.id === "f-title" && !t.value.trim()) setTimeout(() => { if (S.cur) { syncAutoTitle(S.cur); renderDescPreview(); } }, 0);
+});
 app.addEventListener("input", e => {
   const t = e.target, it = S.cur; if (!it) return;
   const ph = curPhoto();
