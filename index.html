@@ -134,7 +134,8 @@ details.panel{display:block}
 .phead[aria-expanded=true] .toggle{background:var(--ink);color:var(--bg)}
 .phead[aria-expanded=true] .toggle svg{transform:rotate(180deg)}
 .phead:focus-visible{outline:none}.phead:focus-visible .toggle{box-shadow:0 0 0 3px var(--tape)}
-.pbody{display:grid;gap:10px}
+.pbody{display:grid;gap:10px;grid-template-columns:minmax(0,1fr);min-width:0}
+.pbody > *{min-width:0;max-width:100%;overflow-wrap:anywhere}
 .pbody[hidden]{display:none}
 .panel .inner{display:grid;gap:10px}
 details.panel summary{cursor:pointer;font-weight:600;font-size:14px}
@@ -188,6 +189,7 @@ label.check input{width:18px;height:18px}
 .guess p{margin:0;white-space:pre-wrap}
 .cvwrap{position:relative;display:inline-block;line-height:0;max-width:100%}
 .rotbar{position:absolute;right:8px;top:8px;display:flex;gap:8px;z-index:2}
+.cvwrap.dragging .iconbtn{opacity:.2;pointer-events:none}
 .iconbtn.dlbtn{position:absolute;right:8px;bottom:8px;z-index:2;background:var(--tape);color:var(--tape-ink);border-color:rgba(0,0,0,.25)}
 .iconbtn.dlbtn:hover{background:var(--tape);filter:brightness(.95)}
 .iconbtn{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;cursor:pointer;background:rgba(22,32,42,.78);color:#fff;border:1px solid rgba(255,255,255,.4);padding:0;box-shadow:0 1px 4px rgba(0,0,0,.3)}
@@ -329,7 +331,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.26";
+const APP_VERSION = "2026-11-15.27";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -1405,6 +1407,7 @@ function setupCanvas() {
     S.sel = h ? h.id : null;
     if (h) {
       cv.setPointerCapture(e.pointerId); e.preventDefault();
+      cv.parentElement?.classList.add("dragging");
       CV.drag = { ...h, start: p, a0: h.l ? [...h.l.a] : null, b0: h.l ? [...h.l.b] : null, box0: h.box ? { ...h.box } : null };
     }
     if (changed) renderSide();
@@ -1452,13 +1455,24 @@ function setupCanvas() {
     }
     if (fitLinesToCrop(it, ph)) updateValues();
     const d = CV.drag, tapped = d.end === "label" && (!d.last || Math.hypot(d.last.x - d.start.x, d.last.y - d.start.y) < 6);
-    CV.drag = null; draw(); scheduleSave(it);
+    CV.drag = null; cv.parentElement?.classList.remove("dragging"); draw(); scheduleSave(it);
+    setTimeout(() => { for (const x of document.querySelectorAll("[data-swallow]")) delete x.dataset.swallow; }, 0);
     if (tapped && d.id) {
       const q = document.getElementById("q-" + d.id);
       if (q) { q.focus({ preventScroll: true }); q.select(); q.scrollIntoView({ block: "nearest", behavior: "smooth" }); q.closest(".qd")?.classList.add("flash"); setTimeout(() => q.closest(".qd")?.classList.remove("flash"), 900); }
     }
   };
   cv.onpointerup = end; cv.onpointercancel = end;
+  // The rotate and download buttons sit on top of the photo. If a line's end dot, a label or the details box is
+  // under the finger, the touch goes to the photo instead, so nothing gets stuck beneath a button.
+  cv.parentElement.addEventListener("pointerdown", e => {
+    const btn = e.target.closest(".iconbtn"); if (!btn || !CV || !CV.img) return;
+    const h = hit(pt(e), e.pointerType !== "mouse");
+    if (!h || !["a", "b", "label", "presize", "dresize", "dmove"].includes(h.end)) return;
+    e.preventDefault(); e.stopPropagation();
+    btn.dataset.swallow = "1";
+    cv.onpointerdown(e);
+  }, true);
   window.onresize = () => CV && CV.layout && CV.layout();
 }
 // How much of the photo a crop to this shape keeps (1 = all of it).
@@ -2299,6 +2313,7 @@ app.addEventListener("input", e => {
 });
 app.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b || b.dataset.pick) return;
+  if (b.dataset.swallow) { delete b.dataset.swallow; return; }
   if (b.dataset.ptoggle) { setPanelOpen(b.dataset.ptoggle, b.getAttribute("aria-expanded") !== "true"); return; }
   if (b.dataset.open) return open(b.dataset.open);
   if (b.dataset.uizoom) { try { localStorage.setItem("dimsum.uiZoom", b.dataset.uizoom); } catch {} applyUiZoom(+b.dataset.uizoom); renderList(); return; }
