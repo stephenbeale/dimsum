@@ -331,7 +331,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.28";
+const APP_VERSION = "2026-11-15.29";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -587,7 +587,7 @@ const TITLE_MAX = 100;
 const clipTitle = t => (t || "").slice(0, TITLE_MAX);
 function toDoc(it) {
   return {
-    name: it.name, type: it.type, unit: it.unit, lineStyle: it.lineStyle || "solid", notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", descOff: it.descOff || [], createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
+    name: it.name, type: it.type, unit: it.unit, saveCount: it.saveCount || 0, lineStyle: it.lineStyle || "solid", notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", descOff: it.descOff || [], createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
     photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, offLines: p.offLines || null, hideLines: !!p.hideLines, detailsPos: p.detailsPos || null, detailsScale: p.detailsScale || null, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
   };
@@ -1912,6 +1912,9 @@ async function saveListing(all, mode = "save") {
   }
   catch (e) { setStatus(""); toast(e.message || "Couldn't make the photos."); return; }
   setStatus("");
+  // Number each save after the first (…-2.jpg, …-3.jpg) so the browser doesn't skip a new version as "already downloaded".
+  it.saveCount = (it.saveCount || 0) + 1; scheduleSave(it);
+  if (it.saveCount > 1) for (let i = 0; i < files.length; i++) files[i] = new File([files[i]], files[i].name.replace(/\.jpg$/, `-${it.saveCount}.jpg`), { type: "image/jpeg" });
   track("photos-downloaded-" + S.exp.shape);
   if (S.exp.clean) track("clean-copies");
   if (mode === "share") await shareFiles(files); else downloadFiles(files);
