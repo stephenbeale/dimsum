@@ -338,7 +338,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.33";
+const APP_VERSION = "2026-11-15.34";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -1263,13 +1263,13 @@ function renderSide() {
       </div>
       <label class="lbl" for="f-title">Title</label>
       <input type="text" id="f-title" value="${esc(it.name === "Untitled garment" ? "" : it.name)}" placeholder="Brand, item, colour, size" maxlength="${TITLE_MAX}">
-      <div class="row2"><button class="btn ghost" data-act="copytitle">${I("copy")}Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/${TITLE_MAX} (eBay shows 80)</span></div>
+      <div class="row2"><button class="btn primary" data-act="copytitle">${I("copy")}Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/${TITLE_MAX} (eBay shows 80)</span></div>
       <label class="lbl" for="f-desc">Description</label>
       <textarea id="f-desc" placeholder="What buyers read: brand, colour, fabric, condition…">${esc(it.description || "")}</textarea>
       <span class="lbl">In the description</span>
       <div class="descparts">${DESC_PARTS.map(([k, l]) => `<label class="check"><input type="checkbox" data-descpart="${k}" ${inDesc(it, k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
 
-      <div class="row2"><button class="btn ghost" data-act="copy">${I("copy")}Copy description</button></div>
+      <div class="row2"><button class="btn primary" data-act="copy">${I("copy")}Copy description</button></div>
       <label class="lbl" for="f-notes">Private notes</label>
       <textarea id="f-notes" placeholder="Just for you: where you bought it, price paid…">${esc(it.notes || "")}</textarea>
       ${it.example ? "" : `<div class="row2"><button class="btn ghost danger" data-act="delete" id="btn-del">${I("trash")}Delete garment</button></div>`}
