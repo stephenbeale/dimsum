@@ -162,6 +162,8 @@ label.check input{width:18px;height:18px}
 .guess p{margin:0;white-space:pre-wrap}
 .cvwrap{position:relative;display:inline-block;line-height:0;max-width:100%}
 .rotbar{position:absolute;right:8px;top:8px;display:flex;gap:8px;z-index:2}
+.iconbtn.dlbtn{position:absolute;right:8px;bottom:8px;z-index:2;background:var(--tape);color:var(--tape-ink);border-color:rgba(0,0,0,.25)}
+.iconbtn.dlbtn:hover{background:var(--tape);filter:brightness(.95)}
 .iconbtn{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;cursor:pointer;background:rgba(22,32,42,.78);color:#fff;border:1px solid rgba(255,255,255,.4);padding:0;box-shadow:0 1px 4px rgba(0,0,0,.3)}
 .iconbtn:hover{background:rgba(22,32,42,.92)}
 .iconbtn svg{width:22px;height:22px}
@@ -263,7 +265,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.2";
+const APP_VERSION = "2026-11-15.3";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -932,7 +934,8 @@ function renderEditor() {
           <button class="ptab add" data-pick="lib" data-target="add" aria-label="Choose more photos">${ICON_IMG}Choose</button>`}
         </div>
         ${ph ? `<div class="stage" id="stage"><div class="cvwrap"><canvas id="cv" aria-label="${esc(ROLES[ph.role])} photo with measurement lines"></canvas>
-          ${it.example ? "" : `<div class="rotbar"><button class="iconbtn" data-act="rot-l" aria-label="Rotate left" title="Rotate left">${ICON_ROT_L}</button><button class="iconbtn" data-act="rot-r" aria-label="Rotate right" title="Rotate right">${ICON_ROT_R}</button></div>`}</div></div>
+          ${it.example ? "" : `<div class="rotbar"><button class="iconbtn" data-act="rot-l" aria-label="Rotate left" title="Rotate left">${ICON_ROT_L}</button><button class="iconbtn" data-act="rot-r" aria-label="Rotate right" title="Rotate right">${ICON_ROT_R}</button></div>`}
+          <button class="iconbtn dlbtn" data-act="saveone" aria-label="Download this photo" title="Download this photo">${I("download")}</button></div></div>
         <div class="quickdims" id="quickdims"></div>
         <p class="hint">Tap a label to type its measurement. Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
         : `<div class="stage"><div class="emptystage"><strong>No photos yet</strong><span>Add the front first, then the back and label.</span>
@@ -1227,8 +1230,8 @@ function drawCropFrames(ctx, it, ph, w, h) {
     const x = f.r.x * w, y = f.r.y * h, fw = f.r.w * w, fh = f.r.h * h;
     ctx.setLineDash(i ? [6, 4] : []); ctx.lineWidth = 2; ctx.strokeStyle = i ? "#fff" : "#f4c430"; ctx.strokeRect(x + 1, y + 1, fw - 2, fh - 2);
     const t = PLATFORMS[f.plat].label, tw = ctx.measureText(t).width + 10;
-    ctx.setLineDash([]); ctx.fillStyle = i ? "#fff" : "#f4c430"; ctx.fillRect(x + fw - tw - 4, y + fh - 20 - i * 22, tw, 18);
-    ctx.fillStyle = "#111"; ctx.fillText(t, x + fw - tw + 1, y + fh - 17 - i * 22);
+    ctx.setLineDash([]); ctx.fillStyle = i ? "#fff" : "#f4c430"; ctx.fillRect(x + 4, y + fh - 20 - i * 22, tw, 18);
+    ctx.fillStyle = "#111"; ctx.fillText(t, x + 9, y + fh - 17 - i * 22);
   });
   ctx.restore();
 }
