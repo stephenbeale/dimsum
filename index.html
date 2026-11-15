@@ -155,6 +155,8 @@ label.check input{width:18px;height:18px}
 #status{margin:0 0 12px}
 #f-title{width:100%}
 .condchips button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-style:solid;border-color:var(--ink)}
+.descparts{display:flex;flex-wrap:wrap;gap:4px 16px}
+.descparts .check{font-size:15px}
 .detailgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
 .detailgrid label{display:grid;gap:4px;font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .detailgrid input{width:100%;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);font-size:15px}
@@ -299,7 +301,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.16";
+const APP_VERSION = "2026-11-15.17";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -543,13 +545,15 @@ function normalize(raw) {
   }
   it.measures = (it.measures || []).map(({ id, key, label, actual, touched }) => ({ id, key, label, actual: actual ?? null, touched: !!touched }));
   it.measures.forEach(m => splitNameValue(m, it.unit === "in" ? "in" : "cm"));
+  if (it.addMeasures === false && !it.descOff) it.descOff = DESC_PARTS.map(([k]) => k);
+  delete it.addMeasures;
   it.photos = it.photos.map(p => ({ ...p, role: p.role === "label" ? "sizelabel" : p.role, lines: p.lines || {}, redact: p.redact || [], ref: p.ref || null }));
   delete it.photoId; delete it.photoBlob; delete it.w; delete it.h; delete it.ref;
   return it;
 }
 function toDoc(it) {
   return {
-    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", addMeasures: it.addMeasures !== false, createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
+    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", descOff: it.descOff || [], createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
     photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, hideLines: !!p.hideLines, detailsPos: p.detailsPos || null, detailsScale: p.detailsScale || null, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
   };
@@ -1225,7 +1229,8 @@ function renderSide() {
       <div class="row2"><button class="btn ghost" data-act="copytitle">${I("copy")}Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/80 for eBay</span></div>
       <label class="lbl" for="f-desc">Description</label>
       <textarea id="f-desc" placeholder="What buyers read: brand, colour, fabric, condition…">${esc(it.description || "")}</textarea>
-      <label class="check"><input type="checkbox" id="f-addm" ${it.addMeasures === false ? "" : "checked"}> Fill in the title, condition and measurements for me (kept up to date)</label>
+      <span class="lbl">In the description</span>
+      <div class="descparts">${DESC_PARTS.map(([k, l]) => `<label class="check"><input type="checkbox" data-descpart="${k}" ${inDesc(it, k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
 
       <div class="row2"><button class="btn ghost" data-act="copy">${I("copy")}Copy description</button></div>
       <label class="lbl" for="f-notes">Private notes</label>
@@ -1596,27 +1601,45 @@ function conditionText(it) {
   const c = CONDITIONS.filter(x => (it.condition || []).includes(x));
   return c.length ? "Condition: " + c.map((x, i) => i ? x.charAt(0).toLowerCase() + x.slice(1) : x).join(", ") : "";
 }
+// Which parts go into the description: all by default, any can be ticked off.
+const DESC_PARTS = [["title", "Title"], ["condition", "Condition"], ["brand", "Brand"], ["size", "Size"], ["material", "Material"], ["measures", "Measurements"]];
+const inDesc = (it, k) => !(it.descOff || []).includes(k);
+const DETAILS_BLOCK = /\n*Details:\n?(?:• [^\n]*(?:\n|$))*/;
+function detailsText(it) {
+  const rows = [];
+  if (inDesc(it, "brand") && (it.brand || "").trim()) rows.push(`• Brand: ${it.brand.trim()}`);
+  if (inDesc(it, "size")) {
+    const sz = (it.sizeText || "").trim() || sizeOf(it);
+    if (sz) rows.push(`• Size: ${sz} 🏷️`);
+    if (fitOf(it)) rows.push(it.type === "shoes" ? `• Width: ${fitOf(it)} 👟` : `• Fit: ${fitOf(it)} 👖`);
+  }
+  if (inDesc(it, "material") && (it.material || "").trim()) rows.push(`• Material: ${it.material.trim()}`);
+  return rows.length ? `Details:\n${rows.join("\n")}` : "";
+}
 function syncDescMeasures(it) {
   if (!it) return false;
   const before = it.description || "";
-  let text = before.replace(MEASURE_BLOCK, "").replace(/\s+$/, "");
+  let text = before.replace(DETAILS_BLOCK, "").replace(MEASURE_BLOCK, "").replace(/\s+$/, "");
   // Start the description with the title. Keep that first line in step with the title until it's edited by hand.
-  const title = realTitle(it), lines = text.split("\n"), first = lines[0].trim();
-  if (it.addMeasures !== false && title && (!text.trim() || (it.descTitle && first === it.descTitle))) {
+  const title = inDesc(it, "title") ? realTitle(it) : "", lines = text.split("\n"), first = lines[0].trim();
+  if (title && it.descTitle && first === it.descTitle) {
     lines[0] = title; text = lines.join("\n"); it.descTitle = title;
+  } else if (title && !it.descTitle) {
+    // Never added yet: put the title on the first line (unless it's already there).
+    if (first !== title) text = text.trim() ? title + "\n" + text : title;
+    it.descTitle = title;
   } else if (!title && it.descTitle && first === it.descTitle) {
     lines.shift(); text = lines.join("\n").replace(/^\s+/, ""); it.descTitle = "";
   }
   // A "Condition: …" line just under the title, kept in step with the chips unless it's been edited by hand.
-  const cond = it.addMeasures === false ? "" : conditionText(it);
+  const cond = inDesc(it, "condition") ? conditionText(it) : "";
   let ls = text ? text.split("\n") : [];
   const ci = it.descCond ? ls.findIndex(l => l.trim() === it.descCond) : -1;
   if (ci >= 0) { if (cond) ls[ci] = cond; else ls.splice(ci, 1); }
   else if (cond && !ls.some(l => /^condition:/i.test(l.trim()))) ls.splice(it.descTitle && ls.length && ls[0].trim() === it.descTitle ? 1 : 0, 0, cond);
   it.descCond = cond;
   text = ls.join("\n").replace(/\s+$/, "");
-  const block = it.addMeasures === false ? "" : measureText(it);
-  if (block) text = text ? text + "\n\n" + block : block;
+  for (const block of [detailsText(it), inDesc(it, "measures") ? measureText(it) : ""]) if (block) text = text ? text + "\n\n" + block : block;
   if (text === before) return false;
   it.description = text;
   return true;
@@ -1628,9 +1651,6 @@ function bothUnits(cm, unit) {
 }
 function measureText(it) {
   const rows = [];
-  const sz = (it.sizeText || "").trim() || sizeOf(it);
-  if (sz) rows.push(`• Size: ${sz} 🏷️`);
-  if (fitOf(it)) rows.push(it.type === "shoes" ? `• Width: ${fitOf(it)} 👟` : `• Fit: ${fitOf(it)} 👖`);
   for (const m of it.measures) {
     const v = bestValue(it, m); if (v.cm == null) continue;
     const hat = m.key === "head" ? ` · UK hat size ${hatSizes(v.cm).uk} (US ${hatSizes(v.cm).us})` : "";
@@ -2099,7 +2119,10 @@ app.addEventListener("change", e => {
     if (m && splitNameValue(m, it.unit === "in" ? "in" : "cm")) { renderSide(); draw(); updateValues(); scheduleSave(it); toast(`Moved the number into the ${m.label} box`); }
     return;
   }
-  if (t.id === "f-addm") { it.addMeasures = t.checked; renderDescPreview(); scheduleSave(it); return; }
+  if (t.dataset.descpart) {
+    const off = new Set(it.descOff || []); t.checked ? off.delete(t.dataset.descpart) : off.add(t.dataset.descpart);
+    it.descOff = [...off]; renderDescPreview(); scheduleSave(it); return;
+  }
   if (t.id === "f-crop") { S.exp.crop = t.checked; saveExp(); if (fitLinesToCrop(it, ph)) scheduleSave(it); renderSide(); draw(); return; }
   if (t.id === "f-details") { S.exp.details = t.checked; saveExp(); renderSide(); draw(); return; }
   if (t.id === "f-clean") { S.exp.clean = t.checked; saveExp(); renderSide(); return; }
