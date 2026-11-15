@@ -301,7 +301,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.17";
+const APP_VERSION = "2026-11-15.18";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -1776,6 +1776,8 @@ function fileName(it, ph, idx, kind = "", plat = "orig") {
   const order = kind === "clean" ? "a" : kind === "measured" ? "b" : "";
   return `${name}-${idx + 1}${order}-${ph.role}${sameRole ? "-" + (idx + 1) : ""}${kind ? "-" + kind : ""}-${plat === "orig" ? "original" : PLATFORMS[plat].tag}.jpg`;
 }
+// Phones (iPhone especially) often ignore in-page downloads, so single-photo saves open the share sheet there.
+function phoneShare() { return matchMedia("(pointer:coarse)").matches && canShareFiles(); }
 function canShareFiles() {
   try { return !!(navigator.canShare && navigator.canShare({ files: [new File(["x"], "x.jpg", { type: "image/jpeg" })] })); } catch { return false; }
 }
@@ -1814,6 +1816,8 @@ async function shareFiles(files) {
   catch (e) {
     if (e.name === "AbortError") return;
     S.ready = files; S.readyMode = "share"; renderReady();
+    $("#ready")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    toast("Photo ready. Tap Share to save it.");
   }
 }
 function downloadOne(f) {
@@ -2247,7 +2251,7 @@ app.addEventListener("click", e => {
   else if (act === "shareall") saveListing(true, "share");
   else if (act === "shareready") { const f = S.ready; S.ready = null; renderReady(); shareFiles(f); }
   else if (act === "copytitle") track("title-copied"), copyString(it.name && it.name !== "Untitled garment" ? it.name : "", "Title copied", "Give the garment a title first.");
-  else if (act === "saveone") saveListing(false);
+  else if (act === "saveone") saveListing(false, phoneShare() ? "share" : "save");
   else if (act === "auto") autoPlace();
   else if (act === "faces") { track("find-faces"); findFaces(); }
   else if (act === "unmirror") {
