@@ -293,7 +293,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.12";
+const APP_VERSION = "2026-11-15.13";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -545,7 +545,7 @@ function toDoc(it) {
   return {
     name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", addMeasures: it.addMeasures !== false, createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
-    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, hideLines: !!p.hideLines, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
+    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, hideLines: !!p.hideLines, detailsPos: p.detailsPos || null, detailsScale: p.detailsScale || null, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
   };
 }
 const toLocal = it => { const d = toDoc(it); d.id = it.id; d.photos.forEach((p, i) => p.blob = it.photos[i].blob || null); return d; };
@@ -869,22 +869,32 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
   const V = opt.view || { x: 0, y: 0, w: W, h: H };
   const reserved = [];
   const details = S.exp.details !== false && !isLabelRole(ph.role) ? detailsOf(it) : [];
+  // Details panel: placed at ph.detailsPos (fractions of the photo) or bottom-left, scaled by ph.detailsScale; drawn last, on top.
+  let drawDetails = null;
   if (details.length) {
-    ctx.save(); ctx.textBaseline = "middle";
-    const lh = 19 * kt, padX = 9 * kt, padY = 7 * kt;
-    const widths = details.map(([key, val]) => { ctx.font = `700 ${13 * kt}px Archivo, Arial, sans-serif`; const a = ctx.measureText(key + ": ").width; ctx.font = `500 ${13 * kt}px Archivo, Arial, sans-serif`; return a + ctx.measureText(val).width; });
+    const ds = kt * (ph.detailsScale || 1);
+    const lh = 19 * ds, padX = 9 * ds, padY = 7 * ds;
+    const widths = details.map(([key, val]) => { ctx.font = `700 ${13 * ds}px Archivo, Arial, sans-serif`; const a = ctx.measureText(key + ": ").width; ctx.font = `500 ${13 * ds}px Archivo, Arial, sans-serif`; return a + ctx.measureText(val).width; });
     const bw = Math.min(Math.max(...widths) + padX * 2, V.w - 16 * kt), bh = details.length * lh + padY * 2;
-    const bx = V.x + 8 * kt, by = V.y + V.h - bh - 8 * kt;
-    roundRect(ctx, bx, by, bw, bh, 6 * kt); ctx.fillStyle = "rgba(255,255,255,.94)"; ctx.fill();
-    ctx.lineWidth = 1.5 * kt; ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.stroke();
-    ctx.beginPath(); ctx.rect(bx, by, bw, bh); ctx.clip();
-    details.forEach(([key, val], i) => {
-      const y = by + padY + lh * i + lh / 2;
-      ctx.fillStyle = "#111"; ctx.font = `700 ${13 * kt}px Archivo, Arial, sans-serif`; ctx.fillText(key + ": ", bx + padX, y);
-      const kw = ctx.measureText(key + ": ").width; ctx.font = `500 ${13 * kt}px Archivo, Arial, sans-serif`; ctx.fillText(val, bx + padX + kw, y);
-    });
-    ctx.restore();
+    let bx = V.x + 8 * kt, by = V.y + V.h - bh - 8 * kt;
+    if (ph.detailsPos) { bx = ph.detailsPos[0] * W; by = ph.detailsPos[1] * H; }
+    bx = clamp(bx, V.x + 4 * kt, V.x + V.w - bw - 4 * kt); by = clamp(by, V.y + 4 * kt, V.y + V.h - bh - 4 * kt);
     reserved.push({ x: bx, y: by, w: bw, h: bh });
+    if (opt.detailsOut) Object.assign(opt.detailsOut, { x: bx, y: by, w: bw, h: bh });
+    drawDetails = () => {
+      ctx.save(); ctx.textBaseline = "middle";
+      roundRect(ctx, bx, by, bw, bh, 6 * ds); ctx.fillStyle = "rgba(255,255,255,.94)"; ctx.fill();
+      ctx.lineWidth = (opt.sel === "details" ? 2.5 : 1.5) * kt; ctx.strokeStyle = opt.sel === "details" ? "#111" : "rgba(0,0,0,.55)"; ctx.stroke();
+      ctx.save(); ctx.beginPath(); ctx.rect(bx, by, bw, bh); ctx.clip();
+      details.forEach(([key, val], i) => {
+        const y = by + padY + lh * i + lh / 2;
+        ctx.fillStyle = "#111"; ctx.font = `700 ${13 * ds}px Archivo, Arial, sans-serif`; ctx.fillText(key + ": ", bx + padX, y);
+        const kw = ctx.measureText(key + ": ").width; ctx.font = `500 ${13 * ds}px Archivo, Arial, sans-serif`; ctx.fillText(val, bx + padX + kw, y);
+      });
+      ctx.restore();
+      if (opt.handles) { ctx.beginPath(); ctx.arc(bx + bw, by + bh, (opt.sel === "details" ? 8 : 6.5) * k, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = 2 * k; ctx.strokeStyle = "#111"; ctx.stroke(); }
+      ctx.restore();
+    };
   }
   if (ph.ref && opt.handles) lines.push({ l: ph.ref, color: REF_COLOR, id: "ref", ref: true, text: "Ref " + fmt(ph.ref.len, it.unit) });
   const pills = [];
@@ -933,6 +943,7 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
     ctx.globalAlpha = 1;
     if (opt.pillsOut) opt.pillsOut.push({ id: p.L.id, l: p.L.l, ...r });
   }
+  if (drawDetails) drawDetails();
 }
 
 // ---------- example garment (drawn, not real photos) ----------
@@ -1092,7 +1103,7 @@ function renderEditor() {
           ${it.example ? "" : `<div class="rotbar"><button class="iconbtn" data-act="rot-l" aria-label="Rotate left" title="Rotate left">${ICON_ROT_L}</button><button class="iconbtn" data-act="rot-r" aria-label="Rotate right" title="Rotate right">${ICON_ROT_R}</button></div>`}
           <button class="iconbtn dlbtn" data-act="saveone" aria-label="Download this photo" title="Download this photo">${I("download")}</button></div></div>
         <div class="quickdims" id="quickdims"></div>
-        <p class="hint">Tap a label to type its measurement. Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
+        <p class="hint">Tap a label to type its measurement. Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. Drag the brand and size box to move it, or its corner dot to resize it. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
         : `<div class="stage"><div class="emptystage"><strong>No photos yet</strong><span>Add the front first, then the back and label.</span>
             <div class="row2" style="justify-content:center"><button class="btn primary" data-pick="cam" data-target="add">${ICON_CAM}Take photo</button><button class="btn" data-pick="lib" data-target="add">${ICON_IMG}Choose photos</button></div></div></div>`}
       </div>
@@ -1271,6 +1282,11 @@ function setupCanvas() {
       if (d < R && (!best || d < best.d - (L.id === S.sel ? 4 : 0))) best = { id: L.id, l: L.l, end, d };
     }
     if (best) return best;
+    const D = CV.details;
+    if (D && D.w) {
+      if (Math.hypot(D.x + D.w - p.x, D.y + D.h - p.y) < R) return { id: "details", end: "dresize", d0: { ...D }, s0: ph.detailsScale || 1 };
+      if (p.x >= D.x && p.x <= D.x + D.w && p.y >= D.y && p.y <= D.y + D.h) return { id: "details", end: "dmove", d0: { ...D } };
+    }
     for (const r of ph.redact) {
       if (Math.hypot((r.x + r.w) * CV.w - p.x, (r.y + r.h) * CV.h - p.y) < R) return { id: "r:" + r.id, box: r, end: "resize" };
     }
@@ -1314,6 +1330,12 @@ function setupCanvas() {
       const b = d.box, o = d.box0;
       if (d.end === "resize") { b.w = clamp(o.w + dx, .02, 1 - o.x); b.h = clamp(o.h + dy, .02, 1 - o.y); }
       else { b.x = clamp(o.x + dx, 0, 1 - o.w); b.y = clamp(o.y + dy, 0, 1 - o.h); }
+    } else if (d.end === "dmove") {
+      ph.detailsPos = [clamp((d.d0.x + p.x - d.start.x) / CV.w, 0, 1), clamp((d.d0.y + p.y - d.start.y) / CV.h, 0, 1)];
+    } else if (d.end === "dresize") {
+      const nw = Math.max(20, d.d0.w + (p.x - d.start.x));
+      ph.detailsScale = clamp(d.s0 * nw / d.d0.w, 0.6, 3);
+      if (!ph.detailsPos) ph.detailsPos = [d.d0.x / CV.w, d.d0.y / CV.h];
     } else if (d.end === "label") {
       const ax = d.l.a[0] * CV.w, ay = d.l.a[1] * CV.h, ex = d.l.b[0] * CV.w - ax, ey = d.l.b[1] * CV.h - ay;
       d.l.t = clamp(((p.x - ax) * ex + (p.y - ay) * ey) / (ex * ex + ey * ey || 1), 0.03, 0.97);
@@ -1410,8 +1432,8 @@ function draw() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
   ctx.drawImage(img, 0, 0, w, h);
   drawRedactions(ctx, img, ph, w, h, 1, { sel: S.sel, handles: true });
-  CV.pills = [];
-  drawOverlay(ctx, it, ph, w, h, Math.max(.8, Math.max(w, h) / 750), { sel: S.sel, handles: true, pillsOut: CV.pills });
+  CV.pills = []; CV.details = {};
+  drawOverlay(ctx, it, ph, w, h, Math.max(.8, Math.max(w, h) / 750), { sel: S.sel, handles: true, pillsOut: CV.pills, detailsOut: CV.details });
   drawCropFrames(ctx, it, ph, w, h);
   const d = CV.drag;
   if (d && d.l && (d.end === "a" || d.end === "b")) {
