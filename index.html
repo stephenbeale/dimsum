@@ -263,7 +263,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.1";
+const APP_VERSION = "2026-11-15.2";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -499,7 +499,7 @@ function toDoc(it) {
   return {
     name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", addMeasures: it.addMeasures !== false, createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
-    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, crop: p.crop || null })),
+    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, crop: p.crop || null, fit: p.fit || null })),
   };
 }
 const toLocal = it => { const d = toDoc(it); d.id = it.id; d.photos.forEach((p, i) => p.blob = it.photos[i].blob || null); return d; };
@@ -972,6 +972,12 @@ function renderSide() {
       <span class="lbl">Size photos for</span>
       <div class="seg" role="group" aria-label="Size photos for">${shapes.map(([k, l]) => `<button data-shape="${k}" aria-pressed="${S.exp.shape === k}">${l}</button>`).join("")}</div>
       ${S.exp.shape !== "orig" ? `<label class="check"><input type="checkbox" id="f-crop" ${S.exp.crop !== false ? "checked" : ""}> Crop to fill the frame (drag the frame on the photo to move it)</label>` : ""}
+      ${S.exp.shape !== "orig" && S.exp.crop !== false && curPhoto() && !isLabelRole(curPhoto().role) ? (() => {
+        const ph = curPhoto(), mode = ph.fit || "auto";
+        const autoNote = platformsFor(S.exp.shape).map(pl => `${PLATFORMS[pl].label}: ${shouldCrop(it, { ...ph, fit: "auto" }, pl) ? "crop" : "fit whole"}`).join(", ");
+        return `<div class="row2"><span class="lbl" style="margin:0">This photo</span><div class="seg" role="group" aria-label="Crop or fit this photo">${[["auto", "Auto"], ["crop", "Crop"], ["fit", "Fit whole"]].map(([k2, l]) => `<button data-fit-mode="${k2}" aria-pressed="${mode === k2}">${l}</button>`).join("")}</div></div>
+        <div class="note">${mode === "auto" ? `Auto (${autoNote}): wide photos are fitted whole rather than losing too much to a tall frame.` : mode === "crop" ? "Always cropped to fill the frame." : "Always shown whole, with a soft blurred background around it."}</div>`;
+      })() : ""}
       <label class="check"><input type="checkbox" id="f-strip" ${S.exp.strip ? "checked" : ""}> Add a measurements list under photos that show lines</label>
       <label class="check"><input type="checkbox" id="f-clean" ${S.exp.clean ? "checked" : ""}> Also save a clean copy, without lines or labels</label>
       ${S.exp.clean ? `<div class="note">Use a clean copy as your first photo on eBay. eBay's photo rules don't allow added text, so keep the measured photos further down the listing.</div>` : ""}
@@ -1167,9 +1173,21 @@ function setupCanvas() {
   cv.onpointerup = end; cv.onpointercancel = end;
   window.onresize = () => CV && CV.layout && CV.layout();
 }
+// How much of the photo a crop to this shape keeps (1 = all of it).
+function cropKeeps(ph, ratio) { const r = ph.w / ph.h; return r > ratio ? ratio / r : r / ratio; }
+// Crop or fit? "auto" crops only when the crop keeps at least three quarters of the photo,
+// so a landscape photo for Vinted's tall frame is fitted whole instead of losing half the picture.
+function shouldCrop(it, ph, plat) {
+  if (plat === "orig" || S.exp.crop === false || isLabelRole(ph.role)) return false;
+  const mode = ph.fit || "auto";
+  if (mode === "crop") return true;
+  if (mode === "fit") return false;
+  const G = listingGeom(it, ph, plat, false);
+  return cropKeeps(ph, G.OW / G.areaH) >= 0.75;
+}
 function cropFramesFor(it, ph) {
   if (S.exp.shape === "orig" || S.exp.crop === false || isLabelRole(ph.role)) return [];
-  return platformsFor(S.exp.shape).map(plat => { const G = listingGeom(it, ph, plat, false); return { plat, r: cropRect(it, ph, G.OW / G.areaH) }; });
+  return platformsFor(S.exp.shape).filter(plat => shouldCrop(it, ph, plat)).map(plat => { const G = listingGeom(it, ph, plat, false); return { plat, r: cropRect(it, ph, G.OW / G.areaH) }; });
 }
 // The area every chosen platform keeps (the overlap of the crop frames), slightly inset.
 function cropKeepRect(it, ph) {
@@ -1446,20 +1464,36 @@ function cropRect(it, ph, ratio) {
   const x = clamp(c.cx * iw - fw / 2, 0, iw - fw), y = clamp(c.cy * ih - fh / 2, 0, ih - fh);
   return { x: x / iw, y: y / ih, w: fw / iw, h: fh / ih };
 }
+// Fill the space around a fitted photo with a soft, blurred copy of it (blur boxes applied first), or a plain colour.
+function fillBehind(g, img, ph, W, H, k) {
+  g.fillStyle = avgColor(img); g.fillRect(0, 0, W, H);
+  try {
+    g.filter = "blur(2px)"; const ok = g.filter === "blur(2px)"; g.filter = "none";
+    if (!ok) return;
+    const t = document.createElement("canvas"), sc = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+    const tw = img.naturalWidth * sc, th = img.naturalHeight * sc;
+    t.width = Math.round(W); t.height = Math.round(H);
+    const tg = t.getContext("2d"), ox = (W - tw) / 2, oy = (H - th) / 2;
+    tg.drawImage(img, ox, oy, tw, th);
+    tg.save(); tg.translate(ox, oy); drawRedactions(tg, img, ph, tw, th, k); tg.restore();
+    g.save(); g.filter = `blur(${Math.round(W / 40)}px)`; g.drawImage(t, -W * .05, -H * .05, W * 1.1, H * 1.1); g.restore();
+    g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(0, 0, W, H);
+  } catch { g.filter = "none"; }
+}
 async function renderListing(it, ph, clean = false, plat = "orig") {
   const img = await loadImg(ph);
   const G = listingGeom(it, ph, plat, clean), { OW, OH, areaH, stripH, k, cols, rowH, rows } = G;
   const iw = img.naturalWidth, ih = img.naturalHeight;
   const c = document.createElement("canvas"); c.width = Math.round(OW); c.height = Math.round(OH); const g = c.getContext("2d");
   let dw, dh, ox, oy, view;
-  if (plat !== "orig" && S.exp.crop !== false) {
+  if (shouldCrop(it, ph, plat)) {
     const r = cropRect(it, ph, OW / areaH);
     dw = OW / r.w; dh = areaH / r.h; ox = -r.x * dw; oy = -r.y * dh;
     view = { x: r.x * dw, y: r.y * dh, w: OW, h: areaH };
   } else {
     const pad = plat === "orig" ? 0 : 12 * k;
     const f = Math.min((OW - 2 * pad) / iw, (areaH - 2 * pad) / ih); dw = iw * f; dh = ih * f; ox = (OW - dw) / 2; oy = (areaH - dh) / 2;
-    g.fillStyle = avgColor(img); g.fillRect(0, 0, OW, areaH);
+    fillBehind(g, img, ph, OW, areaH, k);
   }
   g.save(); g.beginPath(); g.rect(0, 0, OW, areaH); g.clip();
   g.drawImage(img, ox, oy, dw, dh);
@@ -1896,6 +1930,7 @@ app.addEventListener("click", e => {
   if (b.dataset.sel) { S.sel = S.sel === b.dataset.sel ? null : b.dataset.sel; renderSide(); draw(); return; }
   if (b.dataset.size) { it.size = it.size === b.dataset.size ? "" : b.dataset.size; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.fit) { it.fit = it.fit === b.dataset.fit ? "" : b.dataset.fit; renderSide(); draw(); scheduleSave(it); return; }
+  if (b.dataset.fitMode) { ph.fit = b.dataset.fitMode === "auto" ? undefined : b.dataset.fitMode; if (fitLinesToCrop(it, ph)) updateValues(); scheduleSave(it); renderSide(); draw(); return; }
   if (b.dataset.shape) { S.exp.shape = b.dataset.shape; saveExp(); if (ph && fitLinesToCrop(it, ph)) scheduleSave(it); renderSide(); draw(); return; }
   if (b.dataset.unit) { it.unit = b.dataset.unit; renderEditor(); scheduleSave(it); return; }
   if (b.dataset.del) { it.measures = it.measures.filter(m => m.id !== b.dataset.del); it.photos.forEach(p => delete p.lines[b.dataset.del]); S.sel = null; renderSide(); draw(); scheduleSave(it); return; }
