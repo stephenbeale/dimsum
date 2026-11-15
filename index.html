@@ -140,6 +140,7 @@ label.check input{width:18px;height:18px}
 .note{font-size:14px;color:var(--muted);line-height:1.45}
 .ai-status{font-size:14px;color:var(--muted)}
 .ai-status.err{color:var(--danger)}
+.toastbtn{margin-left:8px;background:var(--tape);color:var(--tape-ink);border:0;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;min-height:34px}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:14px;z-index:20;max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion:no-preference){.card{transition:border-color .15s}}
 .ptabs{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;margin-bottom:6px}
@@ -291,7 +292,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.8";
+const APP_VERSION = "2026-11-15.9";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -948,6 +949,12 @@ function makeExample() {
 // ---------- views ----------
 let statusMsg = "", statusErr = false;
 function setStatus(m, err = false) { statusMsg = m; statusErr = err; const el = $("#status"); el.textContent = m; el.className = "status" + (err ? " err" : ""); el.hidden = !m; }
+function toastAction(msg, label, fn) {
+  const t = $("#toast"); t.innerHTML = ""; t.append(msg + " ");
+  const b = document.createElement("button"); b.className = "toastbtn"; b.textContent = label;
+  b.onclick = () => { t.hidden = true; fn(); };
+  t.append(b); t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 7000);
+}
 function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2800); }
 const ICON_CAM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
 const ICON_IMG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>';
@@ -1402,13 +1409,30 @@ function guessFromNames(names) {
   for (const [type, re] of NAME_WORDS) if (re.test(txt)) return type;
   return null;
 }
+// Switch garment type: keep measurements the new type also uses (and custom ones), drop the rest, add the new type's defaults.
+// Returns what's needed to undo, and which measurements with values were dropped.
 function setType(it, type) {
+  const before = { type: it.type, unit: it.unit, measures: structuredClone(it.measures), lines: it.photos.map(p => structuredClone(p.lines)) };
+  const fresh = !it.measures.some(m => m.touched || m.actual > 0);
   it.type = type;
   if ((type === "hat" || type === "shoes") && !it.measures.some(m => m.actual > 0)) it.unit = "cm";
-  if (!it.measures.some(m => m.touched || m.actual > 0)) {
-    it.measures = freshMeasures(type);
-    it.photos.forEach((p, i) => p.lines = i === 0 ? defaultLines(it) : {});
+  const tpl = TEMPLATES[type].measures, order = m => { const i = tpl.findIndex(t => t.key === m.key); return i < 0 ? 99 : i; };
+  const keep = it.measures.filter(m => m.key === "custom" || tpl.some(t => t.key === m.key));
+  const removed = it.measures.filter(m => !keep.includes(m));
+  keep.forEach(m => { const t = tpl.find(t => t.key === m.key); if (t) m.label = t.label; });
+  const added = tpl.filter(t => !t.optional && !keep.some(m => m.key === t.key)).map(t => ({ id: uid(), key: t.key, label: t.label, actual: null, touched: false }));
+  it.measures = [...keep, ...added].sort((a, b) => order(a) - order(b));
+  const cover = it.photos.find(p => !isLabelRole(p.role)) || it.photos[0];
+  if (fresh) it.photos.forEach(p => p.lines = p === cover ? defaultLines(it) : {});
+  else {
+    it.photos.forEach(p => { for (const m of removed) delete p.lines[m.id]; });
+    if (cover) for (const m of added) cover.lines[m.id] = defaultLine(it, m);
   }
+  return { before, removed: removed.filter(m => m.actual > 0) };
+}
+function undoType(it, before) {
+  it.type = before.type; it.unit = before.unit; it.measures = before.measures;
+  it.photos.forEach((p, i) => { if (before.lines[i]) p.lines = before.lines[i]; });
 }
 const GUESS_SCHEMA = { type: "object", additionalProperties: false,
   required: ["type", "title", "brand", "size", "colour", "material", "description", "confidence", "turns"],
@@ -1993,8 +2017,12 @@ app.addEventListener("change", e => {
   if (t.id === "f-move") { if (t.value) movePhoto(it, S.pi, t.value); return; }
   if (t.id === "f-role") { ph.role = t.value; if (isLabelRole(ph.role)) ph.lines = {}; S.sel = null; renderEditor(); scheduleSave(it); return; }
   if (t.id === "f-type") {
-    setType(it, t.value);
+    const prevName = TEMPLATES[it.type]?.name || "", r = setType(it, t.value);
     S.sel = null; renderEditor(); scheduleSave(it);
+    if (r.removed.length) {
+      const names = r.removed.map(m => m.label).join(", ");
+      toastAction(`Removed ${names}, which ${r.removed.length > 1 ? "aren't" : "isn't"} used for ${TEMPLATES[it.type].name.toLowerCase()}.`, "Undo", () => { undoType(it, r.before); S.sel = null; renderEditor(); scheduleSave(it); toast(`Back to ${prevName.toLowerCase()}`); });
+    }
     return;
   }
   if (t.id === "f-ref") {
