@@ -198,6 +198,11 @@ label.check input{width:18px;height:18px}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.pthumb.work::after{animation:none}.progress .bar i{transition:none}}
 .batchbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--tape);border-radius:8px;padding:8px 12px;margin-bottom:12px}
+.sortbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:6;display:flex;flex-wrap:wrap;gap:8px;padding:10px 0;margin-bottom:8px;background:var(--bg);border-bottom:1px solid var(--line)}
+.sortmini{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px}
+.sortmini figure{margin:0;display:grid;gap:4px}
+.sortmini img{width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:6px;background:var(--sunk);display:block}
+.sortmini figcaption{font-size:13px;color:var(--muted);text-align:center}
 .sortlist{display:grid;gap:16px}
 .sortgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}
 .sortcard{display:grid;gap:6px;min-width:0}
@@ -294,7 +299,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.15";
+const APP_VERSION = "2026-11-15.16";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -1906,7 +1911,7 @@ function startSort(photos, files) {
   for (const x of items) { byG[x.g] = (byG[x.g] || 0) + 1; x.role = ["front", "back", "sizelabel", "material"][byG[x.g] - 1] || "detail"; }
   const groups = new Set(items.map(x => x.g)).size;
   S.sort = { photos: items, types: {}, busy: false,
-    status: S.canImages ? "" : groups > 1 ? `Split into ${groups} garments by the time each photo was taken. Check them below.` : "Add a Claude API key on the wardrobe page and Claude will sort photos of different garments for you." };
+    status: groups > 1 && !S.canImages ? `These look like ${groups} garments, going by when each photo was taken. Check them below.` : "" };
   S.view = "sort"; render(); window.scrollTo(0, 0);
   if (S.canImages) sortWithClaude();
 }
@@ -1914,8 +1919,26 @@ function sortGroups() { const out = []; for (const x of S.sort.photos) if (!out.
 function renderSort() {
   const st = S.sort, groups = sortGroups();
   const roleOpts = r => Object.entries(ROLES).map(([k, l]) => `<option value="${k}" ${r === k ? "selected" : ""}>${l}</option>`).join("");
-  $("#app").innerHTML = `
-    <div class="banner">You chose ${st.photos.length} photos. Check they're grouped by garment, then tap <b>Create</b>. To move a photo, change the garment under it.</div>
+  const one = groups.length === 1 && !st.expanded;
+  const bar = `<div class="sortbar">
+      <button class="btn primary" data-sort-act="create" ${st.busy ? "disabled" : ""}>${I("check")}Create ${groups.length > 1 ? groups.length + " garments" : "garment"}</button>
+      ${one ? `<button class="btn" data-sort-act="split">${I("merge")}Split into separate garments</button>` : ""}
+      ${!one && S.canImages ? `<button class="btn" data-sort-act="claude" ${st.busy ? "disabled" : ""}>${I("spark")}${st.busy ? "Claude is sorting…" : "Sort again with Claude"}</button>` : ""}
+      ${!one && groups.length > 1 ? `<button class="btn" data-sort-act="one">${I("merge")}Make it all one garment</button>` : ""}
+      <button class="btn ghost" data-sort-act="cancel">${I("x")}Cancel</button>
+    </div>`;
+  if (one) {
+    $("#app").innerHTML = `${bar}
+      <section class="panel">
+        <h2>${st.busy ? "Checking your photos…" : `These ${st.photos.length} photos look like one garment`}${st.types[groups[0]] ? ` <span style="text-transform:none;letter-spacing:0;font-weight:500">${esc(TEMPLATES[st.types[groups[0]]].name)}</span>` : ""}</h2>
+        <div class="ai-status${st.err ? " err" : ""}" id="sort-status">${esc(st.status)}</div>
+        <div class="sortmini">${st.photos.map((x, i) => `<figure><img src="${x.url}" alt="Photo ${i + 1}"><figcaption>${esc(ROLES[x.role] || x.role)}</figcaption></figure>`).join("")}</div>
+        <p class="note" style="margin:0">If these are different items, tap <b>Split into separate garments</b>. You can change what each photo shows, rotate or move photos later too.</p>
+      </section>`;
+    return;
+  }
+  $("#app").innerHTML = `${bar}
+    <div class="banner">To move a photo to another garment, change the garment under it.</div>
     <div class="ai-status${st.err ? " err" : ""}" id="sort-status" style="margin-bottom:12px">${esc(st.status)}</div>
     <div class="sortlist">
     ${groups.map((g, gi) => {
@@ -1930,12 +1953,6 @@ function renderSort() {
         </div>`).join("")}</div>
       </section>`;
     }).join("")}
-    </div>
-    <div class="row2" style="margin-top:16px">
-      <button class="btn primary" data-sort-act="create" ${st.busy ? "disabled" : ""}>${I("check")}Create ${groups.length} garment${groups.length > 1 ? "s" : ""}</button>
-      ${S.canImages ? `<button class="btn" data-sort-act="claude" ${st.busy ? "disabled" : ""}>${I("spark")}${st.busy ? "Claude is sorting…" : "Sort again with Claude"}</button>` : ""}
-      ${groups.length > 1 ? `<button class="btn" data-sort-act="one">${I("merge")}Make it all one garment</button>` : ""}
-      <button class="btn ghost" data-sort-act="cancel">${I("x")}Cancel</button>
     </div>`;
 }
 function photoThumb(url, max) {
@@ -2011,7 +2028,8 @@ document.addEventListener("click", e => {
   const act = b.dataset.sortAct;
   if (act === "create") createFromSort();
   else if (act === "claude") sortWithClaude();
-  else if (act === "one") { const g = S.sort.photos[0].g; S.sort.photos.forEach(x => x.g = g); renderSort(); }
+  else if (act === "split") { S.sort.expanded = true; renderSort(); window.scrollTo(0, 0); }
+  else if (act === "one") { const g = S.sort.photos[0].g; S.sort.photos.forEach(x => x.g = g); S.sort.expanded = false; renderSort(); }
   else if (act === "cancel") { for (const x of S.sort.photos) URL.revokeObjectURL(x.url); S.sort = null; S.view = "list"; render(); }
 });
 
