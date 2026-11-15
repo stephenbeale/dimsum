@@ -200,6 +200,9 @@ label.check input{width:18px;height:18px}
 .chestx{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px}
 .detailgrid .chestx label.check{display:flex;font-size:15px;font-weight:500;color:inherit;text-transform:none;letter-spacing:0}
 .detailgrid .chestx label.check input{width:22px;height:22px}
+.savebar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:24px 0 8px;padding:16px 0;border-top:1px solid var(--line)}
+.savebar .btn{min-height:48px}
+.savebar .note{flex-basis:100%}
 .qsuggest{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
 .qsuggest .btn{border-style:dashed;flex-wrap:wrap;gap:4px 8px}
 .qsuggest .note{font-weight:400;font-size:13px}
@@ -344,7 +347,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.36";
+const APP_VERSION = "2026-11-15.37";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -671,6 +674,13 @@ async function flushSave() {
   clearTimeout(saveTimer); const it = savePending; savePending = null; if (!it) return;
   try { await writeItem(it); }
   catch (e) { toast(e.code === "quota_exceeded" ? "Storage is full. Delete a garment to make room." : "Couldn't save just now. Your last change may be lost."); }
+}
+// The Save buttons at the bottom: everything already saves as you go, but this writes it now and says so.
+async function saveNow(it) {
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  clearTimeout(saveTimer); savePending = null;
+  try { await writeItem(it); return true; }
+  catch (e) { toast(e.code === "quota_exceeded" ? "Storage is full. Delete a garment to make room." : "Couldn't save just now. Try again."); return false; }
 }
 function upsertLocal(it) {
   const copy = { ...it, photos: it.photos.map(p => ({ ...p })) };
@@ -1174,7 +1184,12 @@ function renderEditor() {
       </div>
       <aside class="side" id="side"></aside>
       <div class="listing" id="listing"></div>
-    </div>`;
+    </div>
+    ${it.example ? "" : `<div class="savebar">
+      <button class="btn primary" data-act="savenow">${I("check")}Save</button>
+      <button class="btn" data-act="saveback">${I("check")}Save and back to wardrobe</button>
+      <span class="note">Changes also save on this device as you go.</span>
+    </div>`}`;
   renderSide();
   if (ph) setupCanvas(); else CV = null;
 }
@@ -2439,6 +2454,8 @@ app.addEventListener("click", e => {
   else if (act === "batch-next") openBatch(S.batch.ids.indexOf(it.id) + 1);
   else if (act === "batch-prev") openBatch(S.batch.ids.indexOf(it.id) - 1);
   else if (act === "batch-done") { const n = S.batch.ids.length; S.batch = null; go("list"); toast(`All ${n} garments done.`); }
+  else if (act === "savenow") { saveNow(it).then(ok => { if (ok) toast("Saved on this device"); }); }
+  else if (act === "saveback") { saveNow(it).then(ok => { if (ok) { S.batch = null; go("list"); toast("Saved"); } }); }
   else if (act === "copy") copyText();
   else if (act === "saveall") saveListing(true);
   else if (act === "shareall") saveListing(true, "share");
