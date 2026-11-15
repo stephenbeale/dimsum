@@ -329,7 +329,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.25";
+const APP_VERSION = "2026-11-15.26";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -576,9 +576,13 @@ function normalize(raw) {
   if (it.addMeasures === false && !it.descOff) it.descOff = DESC_PARTS.map(([k]) => k);
   delete it.addMeasures;
   it.photos = it.photos.map(p => ({ ...p, role: p.role === "label" ? "sizelabel" : p.role, lines: p.lines || {}, redact: p.redact || [], ref: p.ref || null }));
+  if (it.name && it.name.length > TITLE_MAX) it.name = clipTitle(it.name);
   delete it.photoId; delete it.photoBlob; delete it.w; delete it.h; delete it.ref;
   return it;
 }
+// Titles are capped at 100 characters: Vinted accepts a longer paste but then refuses to save it.
+const TITLE_MAX = 100;
+const clipTitle = t => (t || "").slice(0, TITLE_MAX);
 function toDoc(it) {
   return {
     name: it.name, type: it.type, unit: it.unit, lineStyle: it.lineStyle || "solid", notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", descOff: it.descOff || [], createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
@@ -1132,7 +1136,7 @@ function renderEditor() {
     ${it.isNew ? `<div class="banner">Pick the garment type and type in each measurement. The lines start in rough positions; ${S.canImages ? "tap <b>Place lines with Claude</b> to snap them to the seams, or " : ""}drag the dots to where you measured. Add the back and label with <b>+ Photo</b>.</div>` : ""}
     <div class="edtop">
       <button class="btn ghost" data-act="back" aria-label="Back to wardrobe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Wardrobe</button>
-      <input class="name" id="f-name" type="text" value="${esc(it.name)}" aria-label="Garment name">
+      <input class="name" id="f-name" type="text" value="${esc(it.name)}" maxlength="${TITLE_MAX}" aria-label="Garment name">
       <select id="f-type" aria-label="Garment type">${Object.entries(TEMPLATES).map(([k, t]) => `<option value="${k}" ${k === it.type ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select>
       <div class="seg" role="group" aria-label="Units on the photo">${[["cm","cm"],["in","in"],["both","cm + in"]].map(([k, l]) => `<button data-unit="${k}" aria-pressed="${it.unit === k}">${l}</button>`).join("")}</div>
     </div>
@@ -1284,8 +1288,8 @@ function renderSide() {
         <label>Material<input type="text" id="f-material" value="${esc(it.material || "")}" placeholder="e.g. 80% wool" autocomplete="off"></label>
       </div>
       <label class="lbl" for="f-title">Title</label>
-      <input type="text" id="f-title" value="${esc(it.name === "Untitled garment" ? "" : it.name)}" placeholder="Brand, item, colour, size" maxlength="120">
-      <div class="row2"><button class="btn ghost" data-act="copytitle">${I("copy")}Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/80 for eBay</span></div>
+      <input type="text" id="f-title" value="${esc(it.name === "Untitled garment" ? "" : it.name)}" placeholder="Brand, item, colour, size" maxlength="${TITLE_MAX}">
+      <div class="row2"><button class="btn ghost" data-act="copytitle">${I("copy")}Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/${TITLE_MAX} (eBay shows 80)</span></div>
       <label class="lbl" for="f-desc">Description</label>
       <textarea id="f-desc" placeholder="What buyers read: brand, colour, fabric, condition…">${esc(it.description || "")}</textarea>
       <span class="lbl">In the description</span>
@@ -1659,7 +1663,7 @@ function renderGuess() {
 }
 function useGuess(what) {
   const it = S.cur, g = it.guess; if (!g) return;
-  if ((what === "title" || what === "all") && g.title) it.name = g.title;
+  if ((what === "title" || what === "all") && g.title) it.name = clipTitle(g.title);
   if ((what === "desc" || what === "all") && g.description) { it.description = g.description; syncDescMeasures(it); }
   if ((what === "type" || what === "all") && g.type && g.type !== it.type) setType(it, g.type);
   if (what === "all") { if (g.brand && !it.brand) it.brand = g.brand; if (g.material && !it.material) it.material = g.material; if (g.size && !it.sizeText) it.sizeText = g.size; }
@@ -2272,11 +2276,12 @@ app.addEventListener("input", e => {
   const t = e.target, it = S.cur; if (!it) return;
   const ph = curPhoto();
   if (t.id === "f-name" || t.id === "f-title") {
+    if (t.value.length > TITLE_MAX) t.value = clipTitle(t.value);
     it.name = t.value.trim() ? t.value : (t.id === "f-title" ? "Untitled garment" : t.value);
     const other = $(t.id === "f-name" ? "#f-title" : "#f-name");
     if (other) other.value = t.id === "f-name" ? (it.name === "Untitled garment" ? "" : it.name) : it.name;
     renderDescPreview();
-    const tc = $("#title-count"); if (tc) tc.textContent = `${(it.name === "Untitled garment" ? "" : it.name).length}/80 for eBay`;
+    const tc = $("#title-count"); if (tc) tc.textContent = `${(it.name === "Untitled garment" ? "" : it.name).length}/${TITLE_MAX} (eBay shows 80)`;
     scheduleSave(it);
   }
   else if (t.id === "f-notes") { it.notes = t.value; scheduleSave(it); }
