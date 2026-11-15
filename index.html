@@ -181,6 +181,11 @@ label.check input{width:18px;height:18px}
 .qd .qnum{width:62px;min-height:36px;padding:4px 8px;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
 .qd{flex-wrap:wrap}
 .qd .qu{color:var(--muted);font-size:14px}
+.qd .qeye{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;margin:-2px -4px -2px 0;border:0;background:none;color:var(--muted);border-radius:8px;cursor:pointer;padding:0}
+.qd .qeye svg{width:20px;height:20px}
+.qd .qeye:hover{background:var(--line)}
+.qd.off .sw{opacity:.25}
+.qd.off .qn{color:var(--muted);text-decoration:line-through}
 .qd.flash{border-color:var(--tape);box-shadow:0 0 0 3px var(--tape)}
 @media (prefers-reduced-motion:no-preference){.qd{transition:box-shadow .3s,border-color .3s}}
 .progress{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -6px 24px rgba(0,0,0,.18);padding:14px max(16px,env(safe-area-inset-right,0px)) calc(14px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:grid;gap:10px;zoom:var(--ui-zoom,1)}
@@ -301,7 +306,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.18";
+const APP_VERSION = "2026-11-15.19";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -555,7 +560,7 @@ function toDoc(it) {
   return {
     name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", descOff: it.descOff || [], createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
-    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, hideLines: !!p.hideLines, detailsPos: p.detailsPos || null, detailsScale: p.detailsScale || null, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
+    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, offLines: p.offLines || null, hideLines: !!p.hideLines, detailsPos: p.detailsPos || null, detailsScale: p.detailsScale || null, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
   };
 }
 const toLocal = it => { const d = toDoc(it); d.id = it.id; d.photos.forEach((p, i) => p.blob = it.photos[i].blob || null); return d; };
@@ -1251,12 +1256,23 @@ function renderSide() {
   renderDescPreview();
   renderQuick();
 }
+// Show or hide one measurement's line on this photo. A hidden line keeps its place, so showing it again puts it back where it was.
+function setLineOn(it, ph, m, on) {
+  if (on) {
+    ph.lines[m.id] = (ph.offLines && ph.offLines[m.id]) || defaultLine(it, m);
+    if (ph.offLines) delete ph.offLines[m.id];
+  } else if (ph.lines[m.id]) {
+    ph.offLines = ph.offLines || {}; ph.offLines[m.id] = ph.lines[m.id]; delete ph.lines[m.id];
+    if (S.sel === m.id) S.sel = null;
+  }
+}
 function renderQuick() {
   const el = $("#quickdims"), it = S.cur; if (!el || !it) return;
   const u = it.unit === "in" ? "in" : "cm";
+  const ph = curPhoto(), lineable = !!ph && !isLabelRole(ph.role) && !ph.hideLines;
   const sizeBox = ["shoes", "other"].includes(it.type) ? `<label class="qd" for="q-size"><span class="qn">Size</span><input class="qnum" type="text" autocomplete="off" enterkeyhint="next" id="q-size" data-size-text value="${esc(it.sizeText || "")}" placeholder="${it.type === "shoes" ? "UK 9" : "e.g. M"}" style="width:110px;text-align:left" aria-label="Size"></label>` : "";
-  el.innerHTML = sizeBox + it.measures.map((m, i) => `<label class="qd" for="q-${m.id}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span><span class="qn">${esc(m.label)}</span><input class="qnum" type="text" inputmode="${m.key === "head" ? "text" : "decimal"}" autocomplete="off" enterkeyhint="next" id="q-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${m.key === "head" ? "57 or 7⅛" : "–"}" aria-label="${esc(m.label)} in ${u}"><span class="qu">${u}</span>${m.key === "head" ? `<span class="note" data-hat="${m.id}" style="flex-basis:100%">${m.actual > 0 ? `= ${n1(m.actual)} cm · UK ${hatSizes(m.actual).uk} · US ${hatSizes(m.actual).us}` : "cm, inches, or a hat size like 7½"}</span>` : ""}</label>`).join("")
-    + (curPhoto() && !isLabelRole(curPhoto().role) ? `<button class="btn ghost" data-act="togglelines" style="min-height:44px">${I(curPhoto().hideLines ? "eye" : "eyeoff")}${curPhoto().hideLines ? "Show lines" : "Hide lines"}</button>` : "")
+  el.innerHTML = sizeBox + it.measures.map((m, i) => `<label class="qd${lineable && !ph.lines[m.id] ? " off" : ""}" for="q-${m.id}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span><span class="qn">${esc(m.label)}</span><input class="qnum" type="text" inputmode="${m.key === "head" ? "text" : "decimal"}" autocomplete="off" enterkeyhint="next" id="q-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${m.key === "head" ? "57 or 7⅛" : "–"}" aria-label="${esc(m.label)} in ${u}"><span class="qu">${u}</span>${lineable ? `<button type="button" class="qeye" data-lineon="${m.id}" aria-pressed="${ph.lines[m.id] ? "true" : "false"}" aria-label="${ph.lines[m.id] ? "Hide" : "Show"} the ${esc(m.label)} line on this photo" title="${ph.lines[m.id] ? "Hide" : "Show"} this line">${I(ph.lines[m.id] ? "eye" : "eyeoff")}</button>` : ""}${m.key === "head" ? `<span class="note" data-hat="${m.id}" style="flex-basis:100%">${m.actual > 0 ? `= ${n1(m.actual)} cm · UK ${hatSizes(m.actual).uk} · US ${hatSizes(m.actual).us}` : "cm, inches, or a hat size like 7½"}</span>` : ""}</label>`).join("")
+    + (curPhoto() && !isLabelRole(curPhoto().role) ? `<button class="btn ghost" data-act="togglelines" style="min-height:44px">${I(curPhoto().hideLines ? "eye" : "eyeoff")}${curPhoto().hideLines ? "Show lines" : "Hide all lines"}</button>` : "")
     + (curPhoto() && !isLabelRole(curPhoto().role) && !curPhoto().hideLines && Object.keys(curPhoto().lines).length ? `<button class="btn ghost" data-act="resetlines" style="min-height:44px">${I("prev")}Reset lines</button>` : "");
 }
 function updateValues() {
@@ -2132,9 +2148,8 @@ app.addEventListener("change", e => {
   if (t.id === "f-clean") { S.exp.clean = t.checked; saveExp(); renderSide(); return; }
   if (t.dataset.on) {
     const m = it.measures.find(m => m.id === t.dataset.on);
-    if (t.checked) ph.lines[m.id] = defaultLine(it, m); else delete ph.lines[m.id];
-    if (S.sel === m.id && !t.checked) S.sel = null;
-    draw(); updateValues(); scheduleSave(it); return;
+    setLineOn(it, ph, m, t.checked);
+    renderQuick(); draw(); updateValues(); scheduleSave(it); return;
   }
   if (t.id === "f-move") { if (t.value) movePhoto(it, S.pi, t.value); return; }
   if (t.id === "f-role") { ph.role = t.value; if (isLabelRole(ph.role)) ph.lines = {}; S.sel = null; renderEditor(); scheduleSave(it); return; }
@@ -2213,6 +2228,14 @@ app.addEventListener("click", e => {
   if (b.dataset.act === "forgetkey") { setKey(""); toast("Key removed"); renderList(); return; }
   const it = S.cur; if (!it) return;
   const ph = curPhoto();
+  if (b.dataset.lineon) {
+    e.preventDefault();
+    const it = S.cur, ph = curPhoto(), m = it && ph && it.measures.find(m => m.id === b.dataset.lineon); if (!m) return;
+    const on = !ph.lines[m.id]; setLineOn(it, ph, m, on);
+    renderSide(); draw(); updateValues(); scheduleSave(it);
+    $(`[data-lineon="${m.id}"]`)?.focus();
+    toast(`${m.label} line ${on ? "shown" : "hidden"} on this photo`); return;
+  }
   if (b.dataset.redl !== undefined) { if (S.ready && S.ready[+b.dataset.redl]) downloadOne(S.ready[+b.dataset.redl]); return; }
   if (b.dataset.photo !== undefined) { S.pi = +b.dataset.photo; S.sel = null; renderEditor(); return; }
   if (b.dataset.sel) { S.sel = S.sel === b.dataset.sel ? null : b.dataset.sel; renderSide(); draw(); return; }
