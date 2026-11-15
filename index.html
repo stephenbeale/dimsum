@@ -92,7 +92,7 @@ main{padding-block:8px 48px}
 .edtop .name{flex:1 1 220px;min-width:0;font-family:var(--display);font-variation-settings:"wdth" 80;font-weight:700;font-size:22px;border:1px solid transparent;background:transparent;border-radius:8px;padding:6px 8px}
 .edtop .name:hover,.edtop .name:focus{border-color:var(--line);background:var(--surface)}
 select,input[type=number],input[type=text],textarea{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:40px}
-textarea{width:100%;min-height:70px;resize:vertical}
+textarea{width:100%;min-height:70px;resize:vertical;overflow-y:hidden}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
 .seg button{border:0;background:transparent;padding:8px 12px;cursor:pointer;font-weight:600;font-size:14px;min-height:38px}
 .seg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
@@ -314,7 +314,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.22";
+const APP_VERSION = "2026-11-15.23";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -1269,6 +1269,7 @@ function renderSide() {
     </details>` : ""}`;
   renderDescPreview();
   renderQuick();
+  requestAnimationFrame(growAll);
 }
 // Show or hide one measurement's line on this photo. A hidden line keeps its place, so showing it again puts it back where it was.
 function setLineOn(it, ph, m, on) {
@@ -1693,11 +1694,22 @@ function measureText(it) {
   }
   return rows.length ? `${isFlat(it) ? "Measurements (laid flat)" : "Measurements"}:\n${rows.join("\n")}` : "";
 }
+// Text boxes grow to fit what's in them, so the whole description is visible without dragging the corner.
+function autoGrow(el) {
+  if (!el || el.tagName !== "TEXTAREA" || !el.isConnected) return;
+  const y = window.scrollY, cs = getComputedStyle(el);
+  el.style.height = "auto";
+  el.style.height = el.scrollHeight + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth) + "px";
+  if (window.scrollY !== y) window.scrollTo(0, y);
+}
+function growAll() { for (const el of document.querySelectorAll("textarea")) autoGrow(el); }
+document.addEventListener("input", e => autoGrow(e.target));
+window.addEventListener("resize", () => requestAnimationFrame(growAll));
 function renderDescPreview() {
   const it = S.cur; if (!it || it.example) return;
   if (!syncDescMeasures(it)) return;
   const el = $("#f-desc");
-  if (el && document.activeElement !== el) el.value = it.description;
+  if (el && document.activeElement !== el) { el.value = it.description; autoGrow(el); }
   scheduleSave(it);
 }
 function copyString(txt, ok, empty) {
