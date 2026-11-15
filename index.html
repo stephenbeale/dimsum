@@ -125,6 +125,18 @@ select{max-width:100%;min-width:0;text-overflow:ellipsis}
 .mnum{width:86px;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
 .munit{width:24px;color:var(--muted);font-size:14px}
 details.panel{display:block}
+/* Collapsible panels (same pattern as Porter): the whole header is the button; the round chevron fills and flips when open. */
+.panel[data-pkey] > h2{display:block}
+.phead{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:52px;margin:-6px 0;padding:0;border:0;background:none;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;text-align:left;cursor:pointer}
+.ptitle{flex:1;min-width:0}
+.phead .toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;border:2px solid var(--ink);color:var(--ink);transition:background .15s,color .15s}
+.phead .toggle svg{width:22px;height:22px;transition:transform .2s}
+.phead[aria-expanded=true] .toggle{background:var(--ink);color:var(--bg)}
+.phead[aria-expanded=true] .toggle svg{transform:rotate(180deg)}
+.phead:focus-visible{outline:none}.phead:focus-visible .toggle{box-shadow:0 0 0 3px var(--tape)}
+.pbody{display:grid;gap:10px}
+.pbody[hidden]{display:none}
+.panel .inner{display:grid;gap:10px}
 details.panel summary{cursor:pointer;font-weight:600;font-size:14px}
 details.panel .inner{display:grid;gap:10px;margin-top:10px}
 label.check{display:flex;gap:8px;align-items:center;font-size:14px;cursor:pointer}
@@ -133,6 +145,9 @@ label.check input{width:18px;height:18px}
 .mname{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mval{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:500;white-space:nowrap}
 .mval small{font-family:var(--body);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-left:6px;font-weight:600}
+.mhow{color:var(--muted);font-size:13px;font-weight:500;white-space:nowrap;margin-left:auto}
+.mname{display:flex;align-items:center;gap:8px}
+.mlabel{overflow:hidden;text-overflow:ellipsis}
 .mbody{display:grid;gap:8px;padding:0 0 4px 24px;font-size:14px}
 .mbody .how{color:var(--muted)}
 .mbody label{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -314,7 +329,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.23";
+const APP_VERSION = "2026-11-15.24";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -1143,6 +1158,33 @@ function renderEditor() {
   if (ph) setupCanvas(); else CV = null;
 }
 
+// Panels under the photo fold away. A big round button on each header opens or closes it; the choice is remembered.
+const PANEL_DEFAULTS = { photo: true, measures: false, text: true, photos: true, estimate: false };
+const CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+function panelState() { try { return JSON.parse(localStorage.getItem("dimsum.panels") || "{}") || {}; } catch { return {}; } }
+function panelOpen(key) { const v = panelState(); return key in v ? !!v[key] : PANEL_DEFAULTS[key] !== false; }
+function setPanelOpen(key, on) {
+  const v = panelState(); v[key] = on; try { localStorage.setItem("dimsum.panels", JSON.stringify(v)); } catch {}
+  const sec = document.querySelector(`section.panel[data-pkey="${key}"]`); if (!sec) return;
+  sec.classList.toggle("closed", !on);
+  sec.querySelector(".phead")?.setAttribute("aria-expanded", String(on));
+  const body = sec.querySelector(".pbody"); if (body) body.hidden = !on;
+  if (on) for (const t of sec.querySelectorAll("textarea")) autoGrow(t);
+}
+function collapsibles(root) {
+  for (const sec of root.querySelectorAll("section.panel[data-pkey]")) {
+    if (sec.querySelector(":scope > h2 > .phead")) continue;
+    const key = sec.dataset.pkey, open = panelOpen(key), h2 = sec.querySelector(":scope > h2"); if (!h2) continue;
+    const body = document.createElement("div"); body.className = "pbody"; body.id = "pb-" + key;
+    while (h2.nextSibling) body.appendChild(h2.nextSibling);
+    const btn = document.createElement("button"); btn.type = "button"; btn.className = "phead"; btn.dataset.ptoggle = key;
+    btn.setAttribute("aria-expanded", String(open)); btn.setAttribute("aria-controls", body.id);
+    const title = document.createElement("span"); title.className = "ptitle";
+    while (h2.firstChild) title.appendChild(h2.firstChild);
+    btn.append(title); btn.insertAdjacentHTML("beforeend", `<span class="toggle">${CHEVRON}</span>`);
+    h2.append(btn); body.hidden = !open; sec.append(body); sec.classList.toggle("closed", !open);
+  }
+}
 function renderSide() {
   const it = S.cur, ph = curPhoto(), sc = scaleOf(ph), u = it.unit === "in" ? "in" : "cm";
   const tpl = TEMPLATES[it.type].measures.filter(t => !it.measures.some(m => m.key === t.key));
@@ -1151,10 +1193,8 @@ function renderSide() {
     const est = sc && ph.lines[m.id] ? pxLen(ph, ph.lines[m.id]) / sc.ppc : null;
     return `<div class="m ${sel ? "sel" : ""}">
       <div class="mhead">
-        ${ph && !isLabelRole(ph.role) ? `<input type="checkbox" class="mon" data-on="${m.id}" ${ph.lines[m.id] ? "checked" : ""} aria-label="Show ${esc(m.label)} on this photo" title="Show on this photo">` : ""}
         <span class="sw" style="background:${COLORS[i % COLORS.length]}"></span>
-        <button class="mname" data-sel="${m.id}" aria-expanded="${sel}">${esc(m.label)}</button>
-        <input class="mnum" type="text" inputmode="${m.key === "head" ? "text" : "decimal"}" autocomplete="off" enterkeyhint="next" id="act-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${est ? "≈ " + inUnit(est, u) : ""}" aria-label="${esc(m.label)} in ${u}"><span class="munit">${u}</span></div>
+        <button class="mname" data-sel="${m.id}" aria-expanded="${sel}"><span class="mlabel">${esc(m.label)}</span><span class="mhow">${sel ? "" : "How to measure"}</span></button></div>
       ${sel ? `<div class="mbody">
         ${how ? `<span class="how">${esc(how)}</span>` : ""}
         ${m.key === "custom" ? `<label>Name <input type="text" id="lbl-${m.id}" data-lbl="${m.id}" value="${esc(m.label)}"></label><span class="how">Just the name, like "Hat size". Type the number in the box above.</span>` : ""}
@@ -1165,7 +1205,7 @@ function renderSide() {
   const shapes = [["vinted", "Vinted 3:4"], ["ebay", "eBay 1:1"], ["both", "Both"], ["orig", "Original"]];
   const role = ph ? (ROLES[ph.role] || ph.role).toLowerCase() : "";
   const lp = $("#listing"); if (lp) lp.innerHTML = `
-    <section class="panel">
+    <section class="panel" data-pkey="photos">
       <h2>Listing photos</h2>
       <span class="lbl">Size photos for</span>
       <div class="seg" role="group" aria-label="Size photos for">${shapes.map(([k, l]) => `<button data-shape="${k}" aria-pressed="${S.exp.shape === k}">${l}</button>`).join("")}</div>
@@ -1197,7 +1237,7 @@ function renderSide() {
       <div class="note">Opening Vinted or eBay copies the description and measurements first, ready to paste. Then add the photos you saved. To copy the title or description separately, use the buttons under Listing text.</div>
     </section>`;
   $("#side").innerHTML = `
-    ${ph ? `<section class="panel">
+    ${ph ? `<section class="panel" data-pkey="photo">
       <h2>This photo</h2>
       <div class="row2">
         <select id="f-role" aria-label="What this photo shows">${Object.entries(ROLES).map(([k, l]) => `<option value="${k}" ${ph.role === k ? "selected" : ""}>${l}</option>`).join("")}</select>
@@ -1221,8 +1261,8 @@ function renderSide() {
       </div>
       <div class="ai-status" id="face-status">${ph.redact.length ? `${ph.redact.length} blurred area${ph.redact.length > 1 ? "s" : ""}. Saved listing photos are always blurred there; the photo you took is kept as it was.` : canFaces() ? "" : "Draw a blur box over anything you don't want to show."}</div>
     </section>` : ""}
-    <section class="panel">
-      <h2>Measurements <span style="text-transform:none;letter-spacing:0;font-weight:500">${isFlat(it) ? "laid flat" : ""}</span></h2>
+    <section class="panel" data-pkey="measures">
+      <h2>Measurement options <span style="text-transform:none;letter-spacing:0;font-weight:500">${isFlat(it) ? "laid flat" : ""}</span></h2>
       ${ph && isLabelRole(ph.role) ? `<div class="note">This is a label photo, so it doesn't show measurement lines. The values still go on the front and back photos.</div>` : ""}
       ${ph && !isLabelRole(ph.role) && S.canImages ? `<div class="row2"><button class="btn" data-act="auto" id="btn-auto">${I("spark")}Place lines with Claude</button></div><div class="ai-status" id="ai-status">Sends this ${esc(role)} photo to Claude, which moves the ticked lines onto the seams. Check them before you save.</div>` : ph ? `<div class="note">Drag the dots onto the seams. Add a Claude API key on the wardrobe page to have Claude place them for you.</div>` : ""}
       <div class="mlist">${mrows || `<div class="note" style="padding:6px">No measurements yet. Add one below.</div>`}</div>
@@ -1231,9 +1271,9 @@ function renderSide() {
       ${FITS[it.type] ? `<div class="row2"><span class="lbl" style="margin:0">${it.type === "shoes" ? "Width" : "Fit"}</span><div class="seg" role="group" aria-label="Fit">${FITS[it.type].map(f => `<button data-fit="${f}" aria-pressed="${it.fit === f}">${f}</button>`).join("")}</div></div>` : ""}
       <div class="chips">${tpl.map(t => `<button data-addm="${t.key}">+ ${esc(t.label)}</button>`).join("")}<button data-addm="">+ Custom</button></div>
       ${ph && !isLabelRole(ph.role) && Object.keys(ph.lines).length ? `<div class="row2"><button class="btn ghost" data-act="resetlines">${I("prev")}Reset lines on this photo</button></div>` : ""}
-      <div class="note">Values belong to the garment; the tick shows each line on this photo. Tap a name to see where to measure it.</div>
+      <div class="note">Type values in the boxes under the photo; the eye button there shows or hides each line. Tap a name here to see how to measure it, or to remove it.</div>
     </section>
-    <section class="panel">
+    <section class="panel" data-pkey="text">
       <h2>Listing text</h2>
       ${guessHTML(it)}
       <span class="lbl">Condition</span>
@@ -1256,8 +1296,8 @@ function renderSide() {
       <textarea id="f-notes" placeholder="Just for you: where you bought it, price paid…">${esc(it.notes || "")}</textarea>
       ${it.example ? "" : `<div class="row2"><button class="btn ghost danger" data-act="delete" id="btn-del">${I("trash")}Delete garment</button></div>`}
     </section>
-    ${ph ? `<details class="panel" ${ph.ref ? "open" : ""}>
-      <summary>No tape measure? Estimate from the photo</summary>
+    ${ph ? `<section class="panel" data-pkey="estimate">
+      <h2>No tape measure? Estimate from the photo</h2>
       <div class="inner">
         <div class="note">Lay a bank card or a sheet of A4 flat beside the garment, pick it here, and line up the white dashed line along its edge. Empty boxes then show an estimate (≈). Typed values always win.</div>
         <div class="scaleline ${sc ? "" : "none"}" id="scale-line">${sc ? "Estimating from " + esc(sc.src) : "No reference set on this photo."}</div>
@@ -1266,7 +1306,8 @@ function renderSide() {
           ${ph.ref?.preset === "custom" ? `<label class="row2">Length <input type="number" step="0.1" min="0" id="f-reflen" style="width:90px" value="${ph.ref.len ? inUnit(ph.ref.len, u) : ""}"> ${u}</label>` : ""}
         </div>
       </div>
-    </details>` : ""}`;
+    </section>` : ""}`;
+  collapsibles(document);
   renderDescPreview();
   renderQuick();
   requestAnimationFrame(growAll);
@@ -1295,9 +1336,9 @@ function updateValues() {
   renderDescPreview();
   const it = S.cur, ph = curPhoto(), sc = scaleOf(ph), u = it.unit === "in" ? "in" : "cm";
   for (const m of it.measures) {
-    const el = document.getElementById("act-" + m.id); if (!el) continue;
+    const el = document.getElementById("q-" + m.id); if (!el) continue;
     const l = ph && ph.lines[m.id];
-    const est = sc && l ? pxLen(ph, l) / sc.ppc : null; el.placeholder = est ? "≈ " + inUnit(est, u) : "";
+    const est = sc && l ? pxLen(ph, l) / sc.ppc : null; el.placeholder = est ? "≈ " + inUnit(est, u) : m.key === "head" ? "57 or 7⅛" : "–";
   }
   const sl = $("#scale-line"); if (sl) { sl.className = "scaleline " + (sc ? "" : "none"); sl.textContent = sc ? "Estimating from " + sc.src : "No reference set on this photo."; }
 }
@@ -1681,9 +1722,10 @@ function syncDescMeasures(it) {
   return true;
 }
 // Both units: the one used on the photos first, the other in brackets.
+// The unit you measured in comes first, as typed; the other goes in brackets, rounded to the nearest quarter (1" (2.5 cm)).
+const q4 = x => String(Math.round(x * 4) / 4);
 function bothUnits(cm, unit) {
-  const inch = n1(cm / 2.54) + '"', metric = n1(cm) + " cm";
-  return unit === "in" ? `${inch} (${metric})` : `${metric} (${inch})`;
+  return unit === "in" ? `${n1(cm / 2.54)}" (${q4(cm)} cm)` : `${n1(cm)} cm (${q4(cm / 2.54)}")`;
 }
 function measureText(it) {
   const rows = [];
@@ -1863,6 +1905,7 @@ async function shareFiles(files) {
   catch (e) {
     if (e.name === "AbortError") return;
     S.ready = files; S.readyMode = "share"; renderReady();
+    setPanelOpen("photos", true);
     $("#ready")?.scrollIntoView({ behavior: "smooth", block: "center" });
     toast("Photo ready. Tap Share to save it.");
   }
@@ -2248,11 +2291,12 @@ app.addEventListener("input", e => {
   else if (t.id === "f-sizetext") { it.sizeText = t.value; for (const el of document.querySelectorAll("[data-size-text]")) el.value = t.value; draw(); renderDescPreview(); scheduleSave(it); }
   else if (t.id === "f-brand" || t.id === "f-sizetext" || t.id === "f-material") { it[{ "f-brand": "brand", "f-sizetext": "sizeText", "f-material": "material" }[t.id]] = t.value; draw(); renderDescPreview(); scheduleSave(it); }
   else if (t.id === "f-reflen") { const v = parseFloat(t.value); ph.ref.len = v > 0 ? fromUnit(v, it.unit) : null; draw(); updateValues(); scheduleSave(it); }
-  else if (t.dataset.lbl) { const m = it.measures.find(m => m.id === t.dataset.lbl); m.label = t.value; t.closest(".m").querySelector(".mname").textContent = t.value; draw(); scheduleSave(it); }
+  else if (t.dataset.lbl) { const m = it.measures.find(m => m.id === t.dataset.lbl); m.label = t.value; t.closest(".m").querySelector(".mlabel").textContent = t.value; draw(); scheduleSave(it); }
   else if (t.dataset.actVal) setActual(it, t);
 });
 app.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b || b.dataset.pick) return;
+  if (b.dataset.ptoggle) { setPanelOpen(b.dataset.ptoggle, b.getAttribute("aria-expanded") !== "true"); return; }
   if (b.dataset.open) return open(b.dataset.open);
   if (b.dataset.uizoom) { try { localStorage.setItem("dimsum.uiZoom", b.dataset.uizoom); } catch {} applyUiZoom(+b.dataset.uizoom); renderList(); return; }
   if (b.dataset.act === "savekey") { const v = $("#f-key").value.trim(); if (!v) { toast("Paste your key into the box first."); return; } setKey(v); toast("Key saved on this device"); renderList(); return; }
