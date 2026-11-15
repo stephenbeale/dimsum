@@ -197,6 +197,9 @@ label.check input{width:18px;height:18px}
 .iconbtn svg{width:22px;height:22px}
 .iconbtn[disabled]{opacity:.5}
 .quickdims{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+.qsuggest{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
+.qsuggest .btn{border-style:dashed;flex-wrap:wrap;gap:4px 8px}
+.qsuggest .note{font-weight:400;font-size:13px}
 .qtools{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .qstyle{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .qstyle .lbl{margin:0}
@@ -290,7 +293,7 @@ const TEMPLATES = {
     T("length", "Length", [.42,.09], [.42,.92], "From the highest point of the shoulder, beside the collar, straight down to the hem."),
     T("collar", "Collar to hem", [.5,.08], [.5,.92], "Centre back, from the collar seam straight down to the hem."),
     T("p2p", "Pit to pit", [.27,.32], [.73,.32], "Straight across the chest, armpit seam to armpit seam."),
-    T("shoulder", "Shoulders", [.31,.15], [.69,.15], "Shoulder seam to shoulder seam."),
+    T("shoulder", "Shoulders", [.31,.15], [.69,.15], "Shoulder seam to shoulder seam.", true),
     T("sleeve", "Sleeve", [.69,.15], [.86,.62], "Shoulder seam to cuff edge, along the top of the sleeve."),
     T("hem", "Hem width", [.27,.92], [.73,.92], "Straight across the bottom edge."),
   ]},
@@ -298,7 +301,7 @@ const TEMPLATES = {
     T("length", "Length", [.42,.09], [.42,.90], "From the highest point of the shoulder, beside the collar, straight down to the hem."),
     T("collar", "Collar to hem", [.5,.08], [.5,.90], "Centre back, from the collar (or neck) seam straight down to the hem."),
     T("p2p", "Pit to pit", [.27,.32], [.73,.32], "Straight across the chest, armpit to armpit."),
-    T("shoulder", "Shoulders", [.31,.15], [.69,.15], "Shoulder seam to shoulder seam."),
+    T("shoulder", "Shoulders", [.31,.15], [.69,.15], "Shoulder seam to shoulder seam.", true),
     T("sleeve", "Sleeve", [.69,.15], [.86,.70], "Shoulder seam to the end of the cuff."),
   ]},
   trousers: { name: "Trousers / jeans", measures: [
@@ -338,7 +341,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.34";
+const APP_VERSION = "2026-11-15.35";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -1336,12 +1339,18 @@ function setLineOn(it, ph, m, on) {
     if (S.sel === m.id) S.sel = null;
   }
 }
+const SUGGEST = { coat: ["shoulder"], shirt: ["shoulder"], knit: ["shoulder"] };
 function renderQuick() {
   const el = $("#quickdims"), it = S.cur; if (!el || !it) return;
   const u = it.unit === "in" ? "in" : "cm";
   const ph = curPhoto(), lineable = !!ph && !isLabelRole(ph.role) && !ph.hideLines;
   const sizeBox = ["shoes", "other"].includes(it.type) ? `<label class="qd" for="q-size"><span class="qn">Size</span><input class="qnum" type="text" autocomplete="off" enterkeyhint="next" id="q-size" data-size-text value="${esc(it.sizeText || "")}" placeholder="${it.type === "shoes" ? "UK 9" : "e.g. M"}" style="width:110px;text-align:left" aria-label="Size"></label>` : "";
   el.innerHTML = sizeBox + it.measures.map((m, i) => `<label class="qd${lineable && !ph.lines[m.id] ? " off" : ""}" for="q-${m.id}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span><span class="qn">${esc(m.label)}</span><input class="qnum" type="text" inputmode="${m.key === "head" ? "text" : "decimal"}" autocomplete="off" enterkeyhint="next" id="q-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${m.key === "head" ? "57 or 7⅛" : "–"}" aria-label="${esc(m.label)} in ${u}"><span class="qu">${u}</span>${lineable ? `<button type="button" class="qeye" data-lineon="${m.id}" aria-pressed="${ph.lines[m.id] ? "true" : "false"}" aria-label="${ph.lines[m.id] ? "Hide" : "Show"} the ${esc(m.label)} line on this photo" title="${ph.lines[m.id] ? "Hide" : "Show"} this line">${I(ph.lines[m.id] ? "eye" : "eyeoff")}</button>` : ""}${m.key === "head" ? `<span class="note" data-hat="${m.id}" style="flex-basis:100%">${m.actual > 0 ? `= ${n1(m.actual)} cm · UK ${hatSizes(m.actual).uk} · US ${hatSizes(m.actual).us}` : "cm, inches, or a hat size like 7½"}</span>` : ""}</label>`).join("")
+    + (() => {
+      // Measurements buyers often ask for but that aren't on by default: offered as one tap.
+      const keys = (SUGGEST[it.type] || []).filter(k => !it.measures.some(m => m.key === k));
+      return keys.length ? `<div class="qsuggest">${keys.map(k => { const t = TEMPLATES[it.type].measures.find(x => x.key === k); return `<button class="btn" data-addm="${k}">+ Add ${esc(t.label.toLowerCase())}<span class="note">Vinted buyers often ask for this</span></button>`; }).join("")}</div>` : "";
+    })()
     + `<div class="qtools">`
     + (lineable ? `<div class="qstyle"><span class="lbl">Line style</span><div class="seg lstyle" role="group" aria-label="Line style">${[["solid", "Solid"], ["dashed", "Dashed"], ["dotted", "Dotted"]].map(([v, t]) => `<button data-lstyle="${v}" aria-pressed="${(it.lineStyle || "solid") === v}">${t}</button>`).join("")}</div></div>` : "")
     + (curPhoto() && !isLabelRole(curPhoto().role) ? `<button class="btn ghost" data-act="togglelines" style="min-height:44px">${I(curPhoto().hideLines ? "eye" : "eyeoff")}${curPhoto().hideLines ? "Show lines" : "Hide all lines"}</button>` : "")
@@ -2396,7 +2405,9 @@ app.addEventListener("click", e => {
     const m = t ? { id: uid(), key: t.key, label: t.label, actual: null, touched: false }
                 : { id: uid(), key: "custom", label: "Custom " + (it.measures.filter(x => x.key === "custom").length + 1), actual: null, touched: true };
     it.measures.push(m); if (ph) ph.lines[m.id] = defaultLine(it, m);
-    S.sel = m.id; renderSide(); draw(); scheduleSave(it); return;
+    S.sel = m.id; renderSide(); draw(); scheduleSave(it);
+    if (b.closest(".qsuggest")) requestAnimationFrame(() => { const q = $("#q-" + m.id); if (q) { q.focus(); q.scrollIntoView({ block: "nearest", behavior: "smooth" }); } });
+    return;
   }
   const act = b.dataset.act;
   const twoTap = (label, fn) => {
