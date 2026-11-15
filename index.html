@@ -338,7 +338,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.32";
+const APP_VERSION = "2026-11-15.33";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -390,6 +390,8 @@ function parseHeadSize(str, unit) {
   else v = parseNum(t);
   if (!v) return null;
   if (v < 10) return (v + 1 / 8) * Math.PI * 2.54;
+  // Heads are about 19–26 in or 48–66 cm round, so anything over 35 must be centimetres, whatever the unit.
+  if (v > 35) return v;
   return fromUnit(v, unit);
 }
 // A measurement's value as shown on photos: the hat size goes after the head circumference.
