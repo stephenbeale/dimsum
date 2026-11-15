@@ -189,6 +189,7 @@ label.check input{width:18px;height:18px}
 .pthumb{position:relative;flex:none;width:56px;height:70px;border-radius:6px;overflow:hidden;background:var(--sunk)}
 .pthumb img{width:100%;height:100%;object-fit:cover;display:block;transition:opacity .2s}
 .pthumb.wait img{opacity:.35}
+.pthumb .pnum{position:absolute;inset:0;display:grid;place-items:center;font-weight:700;color:var(--muted);font-size:15px}
 .pthumb.work img{opacity:.7}
 .pthumb.work::after{content:"";position:absolute;inset:50% auto auto 50%;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:50%;border:3px solid rgba(255,255,255,.5);border-top-color:#fff;animation:spin .8s linear infinite;box-sizing:border-box;filter:drop-shadow(0 0 2px rgba(0,0,0,.6))}
 .pthumb.done::after{content:"✓";position:absolute;right:3px;bottom:3px;width:20px;height:20px;border-radius:50%;background:#21714a;color:#fff;font-size:13px;font-weight:700;display:grid;place-items:center;line-height:1}
@@ -292,7 +293,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.9";
+const APP_VERSION = "2026-11-15.10";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -626,17 +627,33 @@ async function removeItem(it) {
 }
 
 // ---------- photo intake ----------
-async function prepPhoto(file) {
+// Open a photo file: the usual way first, then a second method if the phone refuses (large photos can fail when memory is tight).
+async function decodePhoto(file) {
   const url = URL.createObjectURL(file);
   try {
-    const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error(`“${file.name || "That file"}” isn't a photo this browser can open. Try a JPEG or PNG.`)); i.src = url; });
-    const max = 2000, k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
-    const w = Math.round(im.naturalWidth * k), h = Math.round(im.naturalHeight * k);
-    const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(im, 0, 0, w, h);
-    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.88));
-    if (!blob) throw new Error("This photo is too large for the browser to process.");
-    return { blob, w, h };
-  } finally { URL.revokeObjectURL(url); }
+    return await new Promise((res, rej) => { const i = new Image(); i.decoding = "async"; i.onload = () => res(i); i.onerror = () => rej(new Error("decode")); i.src = url; });
+  } catch {
+    if ("createImageBitmap" in window) {
+      try { return await createImageBitmap(file, { imageOrientation: "from-image" }); } catch {}
+      await new Promise(r => setTimeout(r, 400));
+      try { return await createImageBitmap(file, { imageOrientation: "from-image" }); } catch {}
+    }
+    throw new Error(`“${file.name || "That file"}” couldn't be opened. Try that one again on its own, or as a JPEG.`);
+  } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
+}
+async function prepPhoto(file) {
+  const im = await decodePhoto(file);
+  const iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
+  const max = 2000, k = Math.min(1, max / Math.max(iw, ih));
+  const w = Math.round(iw * k), h = Math.round(ih * k);
+  const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(im, 0, 0, w, h);
+  if (im.close) im.close();
+  const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.88));
+  if (!blob) throw new Error(`“${file.name || "That photo"}” is too large for this phone to process.`);
+  const t = document.createElement("canvas"), tk = 140 / Math.max(w, h);
+  t.width = Math.round(w * tk); t.height = Math.round(h * tk); t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
+  c.width = c.height = 1;
+  return { blob, w, h, thumb: t.toDataURL("image/jpeg", .7) };
 }
 function nextRole(it, i) {
   const used = new Set(it ? it.photos.map(p => p.role) : []);
@@ -656,53 +673,65 @@ for (const id of ["#in-cam", "#in-lib"]) $(id).addEventListener("change", e => {
   if (files.length) ingest(files, S.pick || "new");
 });
 // Progress panel while photos are prepared on the phone: a thumbnail per photo, a spinner on the one being worked on, a tick when ready.
-let progressUrls = [];
 function showProgress(files) {
-  const el = $("#progress"); progressUrls = files.map(f => { try { return URL.createObjectURL(f); } catch { return ""; } });
-  el.innerHTML = `<div class="ptitle"><strong>Adding ${files.length} photo${files.length > 1 ? "s" : ""}…</strong><span class="note" id="pcount">0 of ${files.length} ready · kept on this phone</span></div>
+  const el = $("#progress");
+  el.innerHTML = `<div class="ptitle"><strong id="ptitle">Adding ${files.length} photo${files.length > 1 ? "s" : ""}…</strong><span class="note" id="pcount">0 of ${files.length} ready · kept on this phone</span></div>
     <div class="bar"><i id="pbar"></i></div>
-    <div class="pgrid">${progressUrls.map((u, i) => `<div class="pthumb wait" id="pt-${i}">${u ? `<img src="${u}" alt="Photo ${i + 1}" decoding="async">` : ""}</div>`).join("")}</div>`;
+    <div class="pgrid">${files.map((f, i) => `<div class="pthumb wait" id="pt-${i}"><span class="pnum">${i + 1}</span></div>`).join("")}</div>
+    <div id="pmsg" class="ai-status err" hidden></div>
+    <div class="row2" id="pclose" hidden><button class="btn" data-act="closeprogress">${I("x")}Close</button></div>`;
   el.hidden = false;
 }
-function markProgress(i, state, done, total) {
-  const t = document.getElementById("pt-" + i); if (t) t.className = "pthumb " + state;
+function markProgress(i, state, done, total, thumb) {
+  const t = document.getElementById("pt-" + i); if (t) { t.className = "pthumb " + state; if (thumb) t.innerHTML = `<img src="${thumb}" alt="Photo ${i + 1}">`; }
   if (state === "work") t?.scrollIntoView({ block: "nearest", inline: "nearest" });
   const c = $("#pcount"), b = $("#pbar");
   if (c) c.textContent = `${done} of ${total} ready · kept on this phone`;
   if (b) b.style.width = `${Math.round(done / total * 100)}%`;
 }
 function hideProgress(delay = 0) {
-  setTimeout(() => { const el = $("#progress"); el.hidden = true; el.innerHTML = ""; progressUrls.forEach(u => u && URL.revokeObjectURL(u)); progressUrls = []; }, delay);
+  setTimeout(() => { const el = $("#progress"); el.hidden = true; el.innerHTML = ""; }, delay);
 }
+function progressProblems(failed, total) {
+  const m = $("#pmsg"), c = $("#pclose"), tt = $("#ptitle"); if (!m) return;
+  if (tt) tt.textContent = failed.length === total ? "Couldn't add these photos" : `Added ${total - failed.length} of ${total} photos`;
+  m.hidden = false; c.hidden = false;
+  m.innerHTML = `${failed.length === 1 ? "1 photo" : failed.length + " photos"} couldn't be added (marked !). ${esc(failed[0].message)}${failed.length > 1 ? " Try those again, a few at a time." : ""}`;
+}
+document.addEventListener("click", e => { if (e.target.closest('[data-act="closeprogress"]')) hideProgress(); });
 async function ingest(files, target) {
   if (S.busy) { toast("Still adding the last photos. One moment."); return; }
   S.busy = true;
   const isNew = target === "new" || !S.cur || S.cur.example;
   const it = isNew ? null : S.cur;
-  const photos = [];
+  const photos = [], okFiles = [], failed = [];
   showProgress(files);
   try {
     for (let i = 0; i < files.length; i++) {
       setStatus(files.length > 1 ? `Preparing photo ${i + 1} of ${files.length}…` : "Preparing photo…");
-      markProgress(i, "work", i, files.length);
+      markProgress(i, "work", photos.length, files.length);
       let prepared;
-      try { prepared = await prepPhoto(files[i]); } catch (e) { markProgress(i, "fail", i, files.length); throw e; }
-      const { blob, w, h } = prepared;
-      markProgress(i, "done", i + 1, files.length);
-      const p = { id: uid(), role: nextRole(it, i), w, h, lines: {}, ref: null, redact: [], fresh: true, fileName: files[i].name || "" };
+      try { prepared = await prepPhoto(files[i]); }
+      catch (e) { failed.push(e); markProgress(i, "fail", photos.length, files.length); continue; }
+      const { blob, w, h, thumb } = prepared;
+      const p = { id: uid(), role: nextRole(it, photos.length), w, h, lines: {}, ref: null, redact: [], fresh: true, fileName: files[i].name || "" };
       p.blob = blob;
-      photos.push(p);
+      photos.push(p); okFiles.push(files[i]);
+      markProgress(i, "done", photos.length, files.length, thumb);
+      await new Promise(r => setTimeout(r, 30));
     }
+    if (failed.length) progressProblems(failed, files.length);
+    if (!photos.length) { setStatus(""); return; }
     if (isNew && photos.length > 1) {
       track("sort-screen");
       setStatus("");
-      startSort(photos, files);
+      startSort(photos, okFiles);
       return;
     }
     if (isNew) {
       const ni = { id: uid(), name: "Untitled garment", type: "coat", unit: "in", notes: "", measures: freshMeasures("coat"), photos, createdAt: Date.now(), updatedAt: Date.now() };
       ni.photos[0].lines = defaultLines(ni);
-      const fg = guessFromNames(files.map(f => f.name || ""));
+      const fg = guessFromNames(okFiles.map(f => f.name || ""));
       if (fg && fg !== ni.type) setType(ni, fg);
       if (fg) ni.guess = { source: "name", type: fg };
       await writeItem(ni);
@@ -720,7 +749,7 @@ async function ingest(files, target) {
   } catch (e) {
     setStatus(e.message || "Couldn't add that photo.", true);
     if (photos.length && !isNew) { it.photos.push(...photos); scheduleSave(it); renderEditor(); }
-  } finally { S.busy = false; hideProgress(document.querySelector(".pthumb.fail") ? 2500 : 500); }
+  } finally { S.busy = false; if (!failed.length) hideProgress(500); }
 }
 
 // ---------- rotation ----------
