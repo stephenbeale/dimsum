@@ -170,6 +170,7 @@ label.check input{width:18px;height:18px}
 .qd{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 6px 4px 10px;min-width:0;cursor:text}
 .qd .qn{font-weight:600;font-size:14px;white-space:nowrap}
 .qd .qnum{width:62px;min-height:36px;padding:4px 8px;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.qd{flex-wrap:wrap}
 .qd .qu{color:var(--muted);font-size:13px}
 .qd.flash{border-color:var(--tape);box-shadow:0 0 0 3px var(--tape)}
 @media (prefers-reduced-motion:no-preference){.qd{transition:box-shadow .3s,border-color .3s}}
@@ -252,12 +253,17 @@ const TEMPLATES = {
     T("waist", "Waist (flat)", [.32,.45], [.68,.45], "Across the narrowest part of the waist, laid flat."),
     T("hem", "Hem width", [.22,.94], [.78,.94], "Straight across the bottom edge."),
   ]},
+  hat: { name: "Hat / cap", measures: [
+    T("head", "Head size", [.2,.6], [.8,.6], "Round the inside of the band, where it sits on the head. Type it in cm, in inches, or as a hat size like 7½."),
+    T("brim", "Brim", [.15,.72], [.35,.8], "From where the brim meets the crown out to its edge.", true),
+    T("crown", "Crown height", [.5,.22], [.5,.6], "From the band up to the top of the crown.", true),
+  ]},
   other: { name: "Something else", measures: [] },
 };
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-10.2";
+const APP_VERSION = "2026-11-15.1";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -293,7 +299,26 @@ async function flushCounts() {
 window.addEventListener("online", flushCounts);
 const FITS = { trousers: ["Skinny", "Slim", "Regular", "Loose"] };
 const fitOf = it => FITS[it.type] && FITS[it.type].includes(it.fit) ? it.fit : "";
-const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"] };
+const SIZES = { shirt: ["XS", "S", "M", "L", "XL", "XXL"], knit: ["XS", "S", "M", "L", "XL", "XXL"], hat: ["XS", "S", "M", "L", "XL", "XXL"] };
+const isFlat = it => it.type !== "hat";
+// Hat sizes: US size is the head circumference in inches divided by pi, to the nearest eighth; UK sizes run an eighth smaller.
+const FRAC = { 0: "", 1: "⅛", 2: "¼", 3: "⅜", 4: "½", 5: "⅝", 6: "¾", 7: "⅞" };
+const eighths = v => { const t = Math.round(v * 8); return Math.floor(t / 8) + FRAC[t % 8]; };
+const hatSizes = cm => { const us = cm / 2.54 / Math.PI; return { uk: eighths(us - 1 / 8), us: eighths(us) }; };
+// "7 1/2", "7½", "7-1/2" or "7.5" read as a UK hat size; anything from 10 up is a circumference in the unit shown.
+function parseHeadSize(str, unit) {
+  let t = String(str).trim().replace(",", ".");
+  const uni = { "⅛": .125, "¼": .25, "⅜": .375, "½": .5, "⅝": .625, "¾": .75, "⅞": .875 };
+  let v = null, m;
+  if ((m = t.match(/^(\d+)\s*([⅛¼⅜½⅝¾⅞])$/))) v = +m[1] + uni[m[2]];
+  else if ((m = t.match(/^(\d+)[\s-]+(\d)\s*\/\s*(\d)$/))) v = +m[1] + (+m[2]) / (+m[3]);
+  else v = parseNum(t);
+  if (!v) return null;
+  if (v < 10) return (v + 1 / 8) * Math.PI * 2.54;
+  return fromUnit(v, unit);
+}
+// A measurement's value as shown on photos: the hat size goes after the head circumference.
+function fmtM(m, cm, unit) { return fmt(cm, unit) + (m.key === "head" ? ` · UK ${hatSizes(cm).uk}` : ""); }
 const sizeOf = it => SIZES[it.type] && SIZES[it.type].includes(it.size) ? it.size : "";
 const tagsOf = it => [sizeOf(it) && "Size " + sizeOf(it), fitOf(it) && fitOf(it) + " fit"].filter(Boolean);
 const SIZE_WORDS = { "extra small": "XS", "small": "S", "medium": "M", "large": "L", "extra large": "XL", "xxl": "XXL", "2xl": "XXL" };
@@ -448,6 +473,15 @@ function freshMeasures(type) {
 }
 
 // ---------- data shape ----------
+// "Hat size: 61cm" typed as a custom line's name: keep "Hat size" as the name and 61 cm as the value.
+function splitNameValue(m, unit) {
+  if (m.key !== "custom" || m.actual > 0) return false;
+  const r = String(m.label).match(/^(.*?)[\s:=-]+(\d+(?:[.,]\d+)?)\s*(cm|in|inch(?:es)?|")?\s*$/i);
+  if (!r || !r[1].trim()) return false;
+  const v = parseFloat(r[2].replace(",", ".")); if (!(v > 0)) return false;
+  const u = r[3] ? (/^c/i.test(r[3]) ? "cm" : "in") : unit;
+  m.label = r[1].trim(); m.actual = u === "in" ? v * 2.54 : v; return true;
+}
 function normalize(raw) {
   const it = { ...raw };
   if (!Array.isArray(it.photos)) {
@@ -456,6 +490,7 @@ function normalize(raw) {
     it.photos = (it.photoId || it.photoBlob) ? [{ id: uid(), role: "front", photoId: it.photoId || null, blob: it.photoBlob || null, w: it.w, h: it.h, lines, ref: it.ref || null, redact: [] }] : [];
   }
   it.measures = (it.measures || []).map(({ id, key, label, actual, touched }) => ({ id, key, label, actual: actual ?? null, touched: !!touched }));
+  it.measures.forEach(m => splitNameValue(m, it.unit === "in" ? "in" : "cm"));
   it.photos = it.photos.map(p => ({ ...p, role: p.role === "label" ? "sizelabel" : p.role, lines: p.lines || {}, redact: p.redact || [], ref: p.ref || null }));
   delete it.photoId; delete it.photoBlob; delete it.w; delete it.h; delete it.ref;
   return it;
@@ -699,7 +734,7 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
   it.measures.forEach((m, i) => {
     const l = !isLabelRole(ph.role) && ph.lines[m.id]; if (!l) return;
     const v = valueOf(m, ph);
-    lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? (opt.handles ? m.label + ": tap to add" : m.label) : m.label + ": " + fmt(v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
+    lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? (opt.handles ? m.label + ": tap to add" : m.label) : m.label + ": " + fmtM(m, v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
   });
   const V = opt.view || { x: 0, y: 0, w: W, h: H };
   if (tagsOf(it).length && !isLabelRole(ph.role)) {
@@ -921,10 +956,10 @@ function renderSide() {
         ${ph && !isLabelRole(ph.role) ? `<input type="checkbox" class="mon" data-on="${m.id}" ${ph.lines[m.id] ? "checked" : ""} aria-label="Show ${esc(m.label)} on this photo" title="Show on this photo">` : ""}
         <span class="sw" style="background:${COLORS[i % COLORS.length]}"></span>
         <button class="mname" data-sel="${m.id}" aria-expanded="${sel}">${esc(m.label)}</button>
-        <input class="mnum" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" id="act-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${est ? "≈ " + inUnit(est, u) : ""}" aria-label="${esc(m.label)} in ${u}"><span class="munit">${u}</span></div>
+        <input class="mnum" type="text" inputmode="${m.key === "head" ? "text" : "decimal"}" autocomplete="off" enterkeyhint="next" id="act-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${est ? "≈ " + inUnit(est, u) : ""}" aria-label="${esc(m.label)} in ${u}"><span class="munit">${u}</span></div>
       ${sel ? `<div class="mbody">
         ${how ? `<span class="how">${esc(how)}</span>` : ""}
-        ${m.key === "custom" ? `<label>Name <input type="text" id="lbl-${m.id}" data-lbl="${m.id}" value="${esc(m.label)}"></label>` : ""}
+        ${m.key === "custom" ? `<label>Name <input type="text" id="lbl-${m.id}" data-lbl="${m.id}" value="${esc(m.label)}"></label><span class="how">Just the name, like "Hat size". Type the number in the box above.</span>` : ""}
         <div class="row2"><button class="btn ghost danger" data-del="${m.id}">${I("minus")}Remove from garment</button></div>
       </div>` : ""}
     </div>`;
@@ -977,7 +1012,7 @@ function renderSide() {
       <div class="ai-status" id="face-status">${ph.redact.length ? `${ph.redact.length} blurred area${ph.redact.length > 1 ? "s" : ""}. Saved listing photos are always blurred there; the photo you took is kept as it was.` : canFaces() ? "" : "Draw a blur box over anything you don't want to show."}</div>
     </section>` : ""}
     <section class="panel">
-      <h2>Measurements <span style="text-transform:none;letter-spacing:0;font-weight:500">laid flat</span></h2>
+      <h2>Measurements <span style="text-transform:none;letter-spacing:0;font-weight:500">${isFlat(it) ? "laid flat" : ""}</span></h2>
       ${ph && isLabelRole(ph.role) ? `<div class="note">This is a label photo, so it doesn't show measurement lines. The values still go on the front and back photos.</div>` : ""}
       ${ph && !isLabelRole(ph.role) && S.canImages ? `<div class="row2"><button class="btn" data-act="auto" id="btn-auto">${I("spark")}Place lines with Claude</button></div><div class="ai-status" id="ai-status">Sends this ${esc(role)} photo to Claude, which moves the ticked lines onto the seams. Check them before you save.</div>` : ph ? `<div class="note">Drag the dots onto the seams. Add a Claude API key on the wardrobe page to have Claude place them for you.</div>` : ""}
       <div class="mlist">${mrows || `<div class="note" style="padding:6px">No measurements yet. Add one below.</div>`}</div>
@@ -1019,7 +1054,7 @@ function renderSide() {
 function renderQuick() {
   const el = $("#quickdims"), it = S.cur; if (!el || !it) return;
   const u = it.unit === "in" ? "in" : "cm";
-  el.innerHTML = it.measures.map((m, i) => `<label class="qd" for="q-${m.id}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span><span class="qn">${esc(m.label)}</span><input class="qnum" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" id="q-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="–" aria-label="${esc(m.label)} in ${u}"><span class="qu">${u}</span></label>`).join("")
+  el.innerHTML = it.measures.map((m, i) => `<label class="qd" for="q-${m.id}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span><span class="qn">${esc(m.label)}</span><input class="qnum" type="text" inputmode="${m.key === "head" ? "text" : "decimal"}" autocomplete="off" enterkeyhint="next" id="q-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${m.key === "head" ? "57 or 7⅛" : "–"}" aria-label="${esc(m.label)} in ${u}"><span class="qu">${u}</span>${m.key === "head" ? `<span class="note" data-hat="${m.id}" style="flex-basis:100%">${m.actual > 0 ? `= ${n1(m.actual)} cm · UK ${hatSizes(m.actual).uk} · US ${hatSizes(m.actual).us}` : "cm, inches, or a hat size like 7½"}</span>` : ""}</label>`).join("")
     + (curPhoto() && !isLabelRole(curPhoto().role) && Object.keys(curPhoto().lines).length ? `<button class="btn ghost" data-act="resetlines" style="min-height:44px">${I("prev")}Reset lines</button>` : "");
 }
 function updateValues() {
@@ -1209,6 +1244,7 @@ function draw() {
 
 // ---------- guesses: type from file names; title, type and description from the photos ----------
 const NAME_WORDS = [
+  ["hat", /\bhat\b|\bcap\b|beanie|beret|fedora|trilby|deerstalker|bucket hat|panama/],
   ["coat", /coat|jacket|blazer|parka|anorak|gilet|bomber|trench|mac\b|waxed|puffer|overshirt/],
   ["knit", /jumper|sweater|cardigan|knit|hoodie|sweatshirt|pullover|fleece/],
   ["trousers", /trouser|jeans?\b|denim|chino|pants|slacks|shorts|joggers|cords/],
@@ -1223,6 +1259,7 @@ function guessFromNames(names) {
 }
 function setType(it, type) {
   it.type = type;
+  if (type === "hat" && !it.measures.some(m => m.actual > 0)) it.unit = "cm";
   if (!it.measures.some(m => m.touched || m.actual > 0)) {
     it.measures = freshMeasures(type);
     it.photos.forEach((p, i) => p.lines = i === 0 ? defaultLines(it) : {});
@@ -1313,7 +1350,7 @@ function useGuess(what) {
 // ---------- tools ----------
 function summaryText(it) { syncDescMeasures(it); return (it.description || "").trim(); }
 // The measurements live at the end of the description itself, and are rewritten whenever they change.
-const MEASURE_BLOCK = /\n*Measurements \(laid flat\):\n?(?:• [^\n]*(?:\n|$))*/;
+const MEASURE_BLOCK = /\n*Measurements(?: \(laid flat\))?:\n?(?:• [^\n]*(?:\n|$))*/;
 const realTitle = it => (it.name && it.name.trim() && it.name !== "Untitled garment") ? it.name.trim() : "";
 function syncDescMeasures(it) {
   if (!it) return false;
@@ -1343,9 +1380,10 @@ function measureText(it) {
   if (fitOf(it)) rows.push(`• Fit: ${fitOf(it)} 👖`);
   for (const m of it.measures) {
     const v = bestValue(it, m); if (v.cm == null) continue;
-    rows.push(`• ${m.label}: ${bothUnits(v.cm, it.unit)}${v.kind === "est." ? ", approx." : ""} 📏`);
+    const hat = m.key === "head" ? ` · UK hat size ${hatSizes(v.cm).uk} (US ${hatSizes(v.cm).us})` : "";
+    rows.push(`• ${m.label}: ${bothUnits(v.cm, it.unit)}${hat}${v.kind === "est." ? ", approx." : ""} 📏`);
   }
-  return rows.length ? `Measurements (laid flat):\n${rows.join("\n")}` : "";
+  return rows.length ? `${isFlat(it) ? "Measurements (laid flat)" : "Measurements"}:\n${rows.join("\n")}` : "";
 }
 function renderDescPreview() {
   const it = S.cur; if (!it || it.example) return;
@@ -1429,7 +1467,7 @@ async function renderListing(it, ph, clean = false, plat = "orig") {
   if (stripH) {
     g.fillStyle = "#16202a"; g.fillRect(0, areaH, OW, stripH);
     g.fillStyle = "#97a3b0"; g.font = `600 ${9 * k}px Archivo, Arial, sans-serif`; g.textBaseline = "alphabetic";
-    g.fillText("MEASUREMENTS, LAID FLAT" + (tagsOf(it).length ? " · " + tagsOf(it).join(" · ").toUpperCase() : ""), 16 * k, areaH + 18 * k);
+    g.fillText((isFlat(it) ? "MEASUREMENTS, LAID FLAT" : "MEASUREMENTS") + (tagsOf(it).length ? " · " + tagsOf(it).join(" · ").toUpperCase() : ""), 16 * k, areaH + 18 * k);
     const colW = (OW - 32 * k) / cols;
     rows.forEach((r, n) => {
       const x = 16 * k + (n % cols) * colW, y = areaH + 22 * k + Math.floor(n / cols) * rowH + 17 * k;
@@ -1438,7 +1476,7 @@ async function renderListing(it, ph, clean = false, plat = "orig") {
       const lab = r.m.label + ": "; g.fillText(lab, x + 18 * k, y);
       const lw = g.measureText(lab).width;
       g.font = `500 ${13 * k}px "IBM Plex Mono", monospace`;
-      g.fillText(fmt(r.v.cm, it.unit) + (r.v.kind === "est." ? " ≈" : ""), x + 18 * k + lw, y);
+      g.fillText(fmtM(r.m, r.v.cm, it.unit) + (r.v.kind === "est." ? " ≈" : ""), x + 18 * k + lw, y);
     });
   }
   return new Promise(r => c.toBlob(r, "image/jpeg", 0.92));
@@ -1774,6 +1812,11 @@ app.addEventListener("change", e => {
   const t = e.target, it = S.cur; if (!it) return;
   const ph = curPhoto();
   if (t.id === "f-strip") { S.exp.strip = t.checked; saveExp(); return; }
+  if (t.dataset.lbl) {
+    const m = it.measures.find(m => m.id === t.dataset.lbl);
+    if (m && splitNameValue(m, it.unit === "in" ? "in" : "cm")) { renderSide(); draw(); updateValues(); scheduleSave(it); toast(`Moved the number into the ${m.label} box`); }
+    return;
+  }
   if (t.id === "f-addm") { it.addMeasures = t.checked; renderDescPreview(); scheduleSave(it); return; }
   if (t.id === "f-crop") { S.exp.crop = t.checked; saveExp(); if (fitLinesToCrop(it, ph)) scheduleSave(it); renderSide(); draw(); return; }
   if (t.id === "f-clean") { S.exp.clean = t.checked; saveExp(); renderSide(); return; }
@@ -1787,7 +1830,7 @@ app.addEventListener("change", e => {
   if (t.id === "f-role") { ph.role = t.value; if (isLabelRole(ph.role)) ph.lines = {}; S.sel = null; renderEditor(); scheduleSave(it); return; }
   if (t.id === "f-type") {
     setType(it, t.value);
-    S.sel = null; renderSide(); draw(); scheduleSave(it);
+    S.sel = null; renderEditor(); scheduleSave(it);
     return;
   }
   if (t.id === "f-ref") {
@@ -1801,6 +1844,13 @@ app.addEventListener("change", e => {
 function parseNum(str) { const v = parseFloat(String(str).replace(",", ".").replace(/[^0-9.]/g, "")); return v > 0 ? v : null; }
 function setActual(it, t) {
   const m = it.measures.find(m => m.id === t.dataset.actVal); if (!m) return;
+  if (m.key === "head") {
+    const cm = parseHeadSize(t.value, it.unit); m.actual = cm;
+    for (const el of document.querySelectorAll(`[data-hat="${m.id}"]`)) el.textContent = cm ? `= ${n1(cm)} cm · UK ${hatSizes(cm).uk} · US ${hatSizes(cm).us}` : "cm, inches, or a hat size like 7½";
+    draw(); updateValues(); scheduleSave(it);
+    if (t.value.trim()) track("measurement-entered", it.id);
+    return;
+  }
   if (t.value.trim()) track("measurement-entered", it.id);
   const v = parseNum(t.value); m.actual = v ? fromUnit(v, it.unit) : null;
   for (const el of document.querySelectorAll(`[data-act-val="${m.id}"]`)) if (el !== t && el.value !== t.value) el.value = t.value;
