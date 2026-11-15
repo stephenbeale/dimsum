@@ -294,7 +294,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.14";
+const APP_VERSION = "2026-11-15.15";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -893,7 +893,7 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
         const kw = ctx.measureText(key + ": ").width; ctx.font = `500 ${13 * ds}px Archivo, Arial, sans-serif`; ctx.fillText(val, bx + padX + kw, y);
       });
       ctx.restore();
-      if (opt.handles) { ctx.beginPath(); ctx.arc(bx + bw, by + bh, (opt.sel === "details" ? 8 : 6.5) * k, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = 2 * k; ctx.strokeStyle = "#111"; ctx.stroke(); }
+      if (opt.handles && opt.sel === "details") { ctx.beginPath(); ctx.arc(bx + bw, by + bh, 8 * k, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = 2 * k; ctx.strokeStyle = "#111"; ctx.stroke(); }
       ctx.restore();
     };
   }
@@ -1104,7 +1104,7 @@ function renderEditor() {
           ${it.example ? "" : `<div class="rotbar"><button class="iconbtn" data-act="rot-l" aria-label="Rotate left" title="Rotate left">${ICON_ROT_L}</button><button class="iconbtn" data-act="rot-r" aria-label="Rotate right" title="Rotate right">${ICON_ROT_R}</button></div>`}
           <button class="iconbtn dlbtn" data-act="saveone" aria-label="Download this photo" title="Download this photo">${I("download")}</button></div></div>
         <div class="quickdims" id="quickdims"></div>
-        <p class="hint">Tap a label to type its measurement. Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. Drag the brand and size box to move it, or its corner dot to resize it. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
+        <p class="hint">Tap a label to type its measurement. Drag a dot to move one end, a label to slide it along its line, or the middle of a line to move all of it. Drag the brand and size box to move it; tap it to show a corner dot for resizing. Drag anywhere else to move the crop frame. A magnifier appears while you drag. Blur boxes move by dragging and resize from the corner dot.</p>`
         : `<div class="stage"><div class="emptystage"><strong>No photos yet</strong><span>Add the front first, then the back and label.</span>
             <div class="row2" style="justify-content:center"><button class="btn primary" data-pick="cam" data-target="add">${ICON_CAM}Take photo</button><button class="btn" data-pick="lib" data-target="add">${ICON_IMG}Choose photos</button></div></div></div>`}
       </div>
@@ -1287,7 +1287,7 @@ function setupCanvas() {
     if (best) return best;
     const D = CV.details;
     if (D && D.w) {
-      if (Math.hypot(D.x + D.w - p.x, D.y + D.h - p.y) < R) return { id: "details", end: "dresize", d0: { ...D }, s0: ph.detailsScale || 1 };
+      if (S.sel === "details" && Math.hypot(D.x + D.w - p.x, D.y + D.h - p.y) < R) return { id: "details", end: "dresize", d0: { ...D }, s0: ph.detailsScale || 1 };
       if (p.x >= D.x && p.x <= D.x + D.w && p.y >= D.y && p.y <= D.y + D.h) return { id: "details", end: "dmove", d0: { ...D } };
     }
     for (const r of ph.redact) {
