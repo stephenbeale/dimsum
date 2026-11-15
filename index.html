@@ -331,7 +331,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.30";
+const APP_VERSION = "2026-11-15.31";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -418,7 +418,7 @@ const PRESETS = {
 // ---------- state ----------
 const S = {
   mode: "pending", items: [], loaded: false, loadErr: "", view: "list",
-  cur: null, pi: 0, sel: null, example: null, exp: { shape: "vinted", strip: true, clean: false, crop: true, details: true }, sort: null,
+  cur: null, pi: 0, sel: null, example: null, exp: { shape: "vinted", clean: false, crop: true, details: true }, sort: null,
   canImages: false,
   pick: null, busy: false, ready: null,
 };
@@ -1222,7 +1222,6 @@ function renderSide() {
         return `<div class="row2"><span class="lbl" style="margin:0">This photo</span><div class="seg" role="group" aria-label="Crop or fit this photo">${[["auto", "Auto"], ["crop", "Crop"], ["fit", "Fit whole"]].map(([k2, l]) => `<button data-fit-mode="${k2}" aria-pressed="${mode === k2}">${l}</button>`).join("")}</div></div>
         <div class="note">${mode === "auto" ? `Auto (${autoNote}): wide photos are fitted whole rather than losing too much to a tall frame.` : mode === "crop" ? "Always cropped to fill the frame." : "Always shown whole, with a soft blurred background around it."}</div>`;
       })() : ""}
-      <label class="check"><input type="checkbox" id="f-strip" ${S.exp.strip ? "checked" : ""}> Add a measurements list under photos that show lines</label>
       <span class="lbl">Text size on photos</span>
       <div class="seg" role="group" aria-label="Text size on photos">${[[0.85, "Small"], [1, "Medium"], [1.3, "Large"], [1.6, "Extra large"]].map(([v, l]) => `<button data-tscale="${v}" aria-pressed="${(S.exp.textScale || 1) === v}">${l}</button>`).join("")}</div>
       <label class="check"><input type="checkbox" id="f-details" ${S.exp.details !== false ? "checked" : ""}> Show brand, size, fit and material on photos (bottom-left)</label>
@@ -1835,7 +1834,8 @@ function listingGeom(it, ph, plat, clean) {
   const rows = stripRows(it), showsLines = !isLabelRole(ph.role) && !ph.hideLines && it.measures.some(m => ph.lines[m.id] && bestValue(it, m).cm != null);
   const OW = plat === "orig" ? ph.w : PLATFORMS[plat].w, k = Math.max(OW, plat === "orig" ? ph.h : PLATFORMS[plat].h) / 750;
   const kt = k * (S.exp.textScale || 1), cols = rows.length > 3 && kt / k < 1.4 ? 2 : 1, rowH = 24 * kt;
-  const stripH = !clean && S.exp.strip && showsLines && rows.length ? 22 * kt + Math.ceil(rows.length / cols) * rowH + 10 * kt : 0;
+  // No measurements band under saved photos: the lines and labels on the photo say it already.
+  const stripH = false && !clean && showsLines && rows.length ? 22 * kt + Math.ceil(rows.length / cols) * rowH + 10 * kt : 0;
   const OH = plat === "orig" ? OW * ph.h / ph.w + stripH : PLATFORMS[plat].h;
   return { OW, OH, areaH: OH - stripH, stripH, k, kt, cols, rowH, rows };
 }
@@ -2254,7 +2254,6 @@ const app = $("#app");
 app.addEventListener("change", e => {
   const t = e.target, it = S.cur; if (!it) return;
   const ph = curPhoto();
-  if (t.id === "f-strip") { S.exp.strip = t.checked; saveExp(); return; }
   if (t.dataset.lbl) {
     const m = it.measures.find(m => m.id === t.dataset.lbl);
     if (m && splitNameValue(m, it.unit === "in" ? "in" : "cm")) { renderSide(); draw(); updateValues(); scheduleSave(it); toast(`Moved the number into the ${m.label} box`); }
