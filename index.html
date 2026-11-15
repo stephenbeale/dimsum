@@ -197,6 +197,9 @@ label.check input{width:18px;height:18px}
 .iconbtn svg{width:22px;height:22px}
 .iconbtn[disabled]{opacity:.5}
 .quickdims{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+.chestx{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px}
+.detailgrid .chestx label.check{display:flex;font-size:15px;font-weight:500;color:inherit;text-transform:none;letter-spacing:0}
+.detailgrid .chestx label.check input{width:22px;height:22px}
 .qsuggest{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
 .qsuggest .btn{border-style:dashed;flex-wrap:wrap;gap:4px 8px}
 .qsuggest .note{font-weight:400;font-size:13px}
@@ -341,7 +344,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.35";
+const APP_VERSION = "2026-11-15.36";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -599,7 +602,7 @@ const TITLE_MAX = 100;
 const clipTitle = t => (t || "").slice(0, TITLE_MAX);
 function toDoc(it) {
   return {
-    name: it.name, autoName: it.autoName || "", type: it.type, unit: it.unit, saveCount: it.saveCount || 0, lineStyle: it.lineStyle || "solid", notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", descOff: it.descOff || [], createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
+    name: it.name, autoName: it.autoName || "", type: it.type, unit: it.unit, saveCount: it.saveCount || 0, chest: it.chest || "", chestEst: it.chestEst !== false, lineStyle: it.lineStyle || "solid", notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", descOff: it.descOff || [], createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
     photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, offLines: p.offLines || null, hideLines: !!p.hideLines, detailsPos: p.detailsPos || null, detailsScale: p.detailsScale || null, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
   };
@@ -1263,6 +1266,8 @@ function renderSide() {
         <label>Brand<input type="text" id="f-brand" value="${esc(it.brand || "")}" placeholder="e.g. Barbour" autocomplete="off"></label>
         <label>Size on label<input type="text" id="f-sizetext" value="${esc(it.sizeText || "")}" placeholder="${esc(sizeOf(it) || (it.type === "shoes" ? "e.g. UK 9 / EU 43" : it.type === "hat" ? "e.g. 58 cm, 7⅛" : "e.g. XL, UK 40, 32R"))}" autocomplete="off"></label>
         <label>Material<input type="text" id="f-material" value="${esc(it.material || "")}" placeholder="e.g. 80% wool" autocomplete="off"></label>
+        ${hasChest(it) ? `<label>Chest size<input type="text" id="f-chest" inputmode="decimal" value="${esc(it.chest || "")}" placeholder="${esc(chestHint(it) ? "e.g. " + chestHint(it) : it.unit === "cm" ? "e.g. 107" : "e.g. 42")}" autocomplete="off"></label>
+        <div class="chestx"><label class="check"><input type="checkbox" id="f-chest-est" ${it.chestEst !== false ? "checked" : ""}> Estimated (not on the label)</label>${chestHint(it) ? `<span class="note">Pit to pit × 2 = ${esc(chestHint(it))}</span>` : ""}</div>` : ""}
       </div>
       <label class="lbl" for="f-title">Title</label>
       <input type="text" id="f-title" value="${esc(it.name === "Untitled garment" ? "" : it.name)}" placeholder="Brand, item, colour, size" maxlength="${TITLE_MAX}">
@@ -1270,7 +1275,7 @@ function renderSide() {
       <label class="lbl" for="f-desc">Description</label>
       <textarea id="f-desc" placeholder="What buyers read: brand, colour, fabric, condition…">${esc(it.description || "")}</textarea>
       <span class="lbl">In the description</span>
-      <div class="descparts">${DESC_PARTS.map(([k, l]) => `<label class="check"><input type="checkbox" data-descpart="${k}" ${inDesc(it, k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
+      <div class="descparts">${DESC_PARTS.filter(([k]) => k !== "chest" || hasChest(it)).map(([k, l]) => `<label class="check"><input type="checkbox" data-descpart="${k}" ${inDesc(it, k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
 
       <div class="row2"><button class="btn primary" data-act="copy">${I("copy")}Copy description</button></div>
       <label class="lbl" for="f-notes">Private notes</label>
@@ -1716,7 +1721,19 @@ function conditionText(it) {
   return c.length ? "Condition: " + c.map((x, i) => i ? x.charAt(0).toLowerCase() + x.slice(1) : x).join(", ") : "";
 }
 // Which parts go into the description: all by default, any can be ticked off.
-const DESC_PARTS = [["title", "Title"], ["condition", "Condition"], ["brand", "Brand"], ["size", "Size"], ["material", "Material"], ["measures", "Measurements"]];
+// Chest size for tops and coats: typed by you (it isn't simply pit to pit doubled), marked "(estimated)" unless it's on the label.
+const hasChest = it => ["coat", "shirt", "knit"].includes(it.type);
+function chestText(it) {
+  const t = hasChest(it) ? (it.chest || "").trim() : ""; if (!t) return "";
+  const withUnit = /^\d+(\.\d+)?$/.test(t) ? t + (it.unit === "cm" ? " cm" : '"') : t;
+  return withUnit + (it.chestEst !== false ? " (estimated)" : "");
+}
+// A rough guide only: pit to pit doubled, to the nearest whole inch or centimetre.
+function chestHint(it) {
+  const m = it.measures.find(m => m.key === "p2p"); const v = m && bestValue(it, m); if (!v || v.cm == null) return "";
+  return it.unit === "cm" ? Math.round(v.cm * 2) + " cm" : Math.round(v.cm * 2 / 2.54) + '"';
+}
+const DESC_PARTS = [["title", "Title"], ["condition", "Condition"], ["brand", "Brand"], ["size", "Size"], ["chest", "Chest size"], ["material", "Material"], ["measures", "Measurements"]];
 const inDesc = (it, k) => !(it.descOff || []).includes(k);
 const DETAILS_BLOCK = /\n*Details:\n?(?:• [^\n]*(?:\n|$))*/;
 function detailsText(it) {
@@ -1727,6 +1744,7 @@ function detailsText(it) {
     if (sz) rows.push(`• Size: ${sz} 🏷️`);
     if (fitOf(it)) rows.push(it.type === "shoes" ? `• Width: ${fitOf(it)} 👟` : `• Fit: ${fitOf(it)} 👖`);
   }
+  if (inDesc(it, "chest") && chestText(it)) rows.push(`• Chest size: ${chestText(it)}`);
   if (inDesc(it, "material") && (it.material || "").trim()) rows.push(`• Material: ${it.material.trim()}`);
   return rows.length ? `Details:\n${rows.join("\n")}` : "";
 }
@@ -2285,6 +2303,7 @@ app.addEventListener("change", e => {
   }
   if (t.id === "f-crop") { S.exp.crop = t.checked; saveExp(); if (fitLinesToCrop(it, ph)) scheduleSave(it); renderSide(); draw(); return; }
   if (t.id === "f-details") { S.exp.details = t.checked; saveExp(); renderSide(); draw(); return; }
+  if (t.id === "f-chest-est") { it.chestEst = t.checked; renderDescPreview(); scheduleSave(it); return; }
   if (t.id === "f-clean") { S.exp.clean = t.checked; saveExp(); renderSide(); return; }
   if (t.dataset.on) {
     const m = it.measures.find(m => m.id === t.dataset.on);
@@ -2360,6 +2379,7 @@ app.addEventListener("input", e => {
     draw(); renderDescPreview(); scheduleSave(it);
   }
   else if (t.id === "f-sizetext") { it.sizeText = t.value; for (const el of document.querySelectorAll("[data-size-text]")) el.value = t.value; draw(); renderDescPreview(); scheduleSave(it); }
+  else if (t.id === "f-chest") { it.chest = t.value; renderDescPreview(); scheduleSave(it); }
   else if (t.id === "f-brand" || t.id === "f-sizetext" || t.id === "f-material") { it[{ "f-brand": "brand", "f-sizetext": "sizeText", "f-material": "material" }[t.id]] = t.value; draw(); renderDescPreview(); scheduleSave(it); }
   else if (t.id === "f-reflen") { const v = parseFloat(t.value); ph.ref.len = v > 0 ? fromUnit(v, it.unit) : null; draw(); updateValues(); scheduleSave(it); }
   else if (t.dataset.lbl) { const m = it.measures.find(m => m.id === t.dataset.lbl); m.label = t.value; t.closest(".m").querySelector(".mlabel").textContent = t.value; draw(); scheduleSave(it); }
