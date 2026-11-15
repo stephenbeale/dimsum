@@ -293,7 +293,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.11";
+const APP_VERSION = "2026-11-15.12";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -545,7 +545,7 @@ function toDoc(it) {
   return {
     name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", addMeasures: it.addMeasures !== false, createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
-    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
+    photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, hideLines: !!p.hideLines, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
   };
 }
 const toLocal = it => { const d = toDoc(it); d.id = it.id; d.photos.forEach((p, i) => p.blob = it.photos[i].blob || null); return d; };
@@ -829,6 +829,8 @@ const ICONS = {
   minus: SVG('<path d="M5 12h14"/>'),
   merge: SVG('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16"/>'),
   next: SVG('<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>'),
+  eye: SVG('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+  eyeoff: SVG('<path d="M2 12s3.6-7 10-7c2 0 3.8.7 5.2 1.6M22 12s-3.6 7-10 7c-2 0-3.8-.7-5.2-1.6"/><path d="M4 20L20 4"/>'),
   mirror: SVG('<path d="M12 3v18" stroke-dasharray="2 2.5"/><path d="M9 7L4 12l5 5z"/><path d="M15 7l5 5-5 5z"/>'),
   prev: SVG('<path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/>'),
 };
@@ -859,9 +861,10 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
   const kt = k * (S.exp.textScale || 1);
   const lines = [];
   it.measures.forEach((m, i) => {
-    const l = !isLabelRole(ph.role) && ph.lines[m.id]; if (!l) return;
+    const l = !isLabelRole(ph.role) && !ph.hideLines && ph.lines[m.id]; if (!l) return;
     const v = valueOf(m, ph);
-    lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, text: v.cm == null ? (opt.handles ? m.label + ": tap to add" : m.label) : m.label + ": " + fmtM(m, v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
+    if (v.cm == null && !opt.handles) return; // saved photos and thumbnails only show lines that have a value
+    lines.push({ l, color: COLORS[i % COLORS.length], id: m.id, empty: v.cm == null, text: v.cm == null ? (opt.handles ? m.label + ": tap to add" : m.label) : m.label + ": " + fmtM(m, v.cm, it.unit) + (v.kind === "est." ? " ≈" : "") });
   });
   const V = opt.view || { x: 0, y: 0, w: W, h: H };
   const reserved = [];
@@ -887,6 +890,7 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
   const pills = [];
   for (const L of lines) {
     const sel = opt.sel === L.id;
+    ctx.globalAlpha = L.empty && !sel ? .45 : 1;
     const ax = L.l.a[0] * W, ay = L.l.a[1] * H, bx = L.l.b[0] * W, by = L.l.b[1] * H;
     const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
     const lw = (sel ? 3.5 : 2.5) * k, tick = 9 * k;
@@ -905,6 +909,7 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
     }
     pills.push({ L, ax, ay, bx, by, horiz: Math.abs(dx) > Math.abs(dy), sel });
   }
+  ctx.globalAlpha = 1;
   ctx.font = `600 ${12.5 * kt}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textBaseline = "middle";
   // Each label sits at a point along its line (l.t, 0 to 1). Labels nobody has moved slide aside to avoid overlapping.
   const placed = [...reserved], overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -921,9 +926,11 @@ function drawOverlay(ctx, it, ph, W, H, k, opt = {}) {
       for (const dt of [0.18, -0.18, 0.3, -0.3, 0.4, -0.4]) { const c = at(0.5 + dt); if (!placed.some(q => overlaps(c, q))) { r = c; break; } }
     }
     placed.push(r);
+    ctx.globalAlpha = p.L.empty && !p.sel ? .7 : 1;
     roundRect(ctx, r.x, r.y, r.w, r.h, 5 * kt); ctx.fillStyle = p.L.color; ctx.fill();
     if (p.sel) { ctx.lineWidth = 2 * kt; ctx.strokeStyle = "#111"; ctx.stroke(); }
     ctx.fillStyle = "#111"; ctx.fillText(p.L.text, r.x + 7 * kt, r.y + ph2 / 2 + .5 * kt);
+    ctx.globalAlpha = 1;
     if (opt.pillsOut) opt.pillsOut.push({ id: p.L.id, l: p.L.l, ...r });
   }
 }
@@ -1225,7 +1232,8 @@ function renderQuick() {
   const u = it.unit === "in" ? "in" : "cm";
   const sizeBox = ["shoes", "other"].includes(it.type) ? `<label class="qd" for="q-size"><span class="qn">Size</span><input class="qnum" type="text" autocomplete="off" enterkeyhint="next" id="q-size" data-size-text value="${esc(it.sizeText || "")}" placeholder="${it.type === "shoes" ? "UK 9" : "e.g. M"}" style="width:110px;text-align:left" aria-label="Size"></label>` : "";
   el.innerHTML = sizeBox + it.measures.map((m, i) => `<label class="qd" for="q-${m.id}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span><span class="qn">${esc(m.label)}</span><input class="qnum" type="text" inputmode="${m.key === "head" ? "text" : "decimal"}" autocomplete="off" enterkeyhint="next" id="q-${m.id}" data-act-val="${m.id}" value="${m.actual > 0 ? inUnit(m.actual, u) : ""}" placeholder="${m.key === "head" ? "57 or 7⅛" : "–"}" aria-label="${esc(m.label)} in ${u}"><span class="qu">${u}</span>${m.key === "head" ? `<span class="note" data-hat="${m.id}" style="flex-basis:100%">${m.actual > 0 ? `= ${n1(m.actual)} cm · UK ${hatSizes(m.actual).uk} · US ${hatSizes(m.actual).us}` : "cm, inches, or a hat size like 7½"}</span>` : ""}</label>`).join("")
-    + (curPhoto() && !isLabelRole(curPhoto().role) && Object.keys(curPhoto().lines).length ? `<button class="btn ghost" data-act="resetlines" style="min-height:44px">${I("prev")}Reset lines</button>` : "");
+    + (curPhoto() && !isLabelRole(curPhoto().role) ? `<button class="btn ghost" data-act="togglelines" style="min-height:44px">${I(curPhoto().hideLines ? "eye" : "eyeoff")}${curPhoto().hideLines ? "Show lines" : "Hide lines"}</button>` : "")
+    + (curPhoto() && !isLabelRole(curPhoto().role) && !curPhoto().hideLines && Object.keys(curPhoto().lines).length ? `<button class="btn ghost" data-act="resetlines" style="min-height:44px">${I("prev")}Reset lines</button>` : "");
 }
 function updateValues() {
   renderDescPreview();
@@ -1626,7 +1634,7 @@ const PLATFORMS = { vinted: { label: "Vinted", w: 1200, h: 1600, tag: "vinted" }
 const platformsFor = shape => shape === "both" ? ["vinted", "ebay"] : shape === "orig" ? ["orig"] : [shape];
 function stripRows(it) { return it.measures.map((m, i) => ({ m, i, v: bestValue(it, m) })).filter(r => r.v.cm != null); }
 function listingGeom(it, ph, plat, clean) {
-  const rows = stripRows(it), showsLines = !isLabelRole(ph.role) && it.measures.some(m => ph.lines[m.id]);
+  const rows = stripRows(it), showsLines = !isLabelRole(ph.role) && !ph.hideLines && it.measures.some(m => ph.lines[m.id] && bestValue(it, m).cm != null);
   const OW = plat === "orig" ? ph.w : PLATFORMS[plat].w, k = Math.max(OW, plat === "orig" ? ph.h : PLATFORMS[plat].h) / 750;
   const kt = k * (S.exp.textScale || 1), cols = rows.length > 3 && kt / k < 1.4 ? 2 : 1, rowH = 24 * kt;
   const stripH = !clean && S.exp.strip && showsLines && rows.length ? 22 * kt + Math.ceil(rows.length / cols) * rowH + 10 * kt : 0;
@@ -1725,7 +1733,7 @@ async function saveListing(all, mode = "save") {
   const files = [];
   try {
     for (const plat of platformsFor(S.exp.shape)) for (const [ph, i] of list) {
-      const lined = !isLabelRole(ph.role) && it.measures.some(m => ph.lines[m.id]);
+      const lined = !isLabelRole(ph.role) && !ph.hideLines && it.measures.some(m => ph.lines[m.id] && bestValue(it, m).cm != null);
       if (S.exp.clean && lined) {
         files.push(new File([await renderListing(it, ph, true, plat)], fileName(it, ph, i, "clean", plat), { type: "image/jpeg" }));
         files.push(new File([await renderListing(it, ph, false, plat)], fileName(it, ph, i, "measured", plat), { type: "image/jpeg" }));
@@ -2161,6 +2169,7 @@ app.addEventListener("click", e => {
     b.disabled = true; track("unmirror");
     unmirrorPhoto(it, ph).then(() => { scheduleSave(it); renderEditor(); toast(ph.mirrored ? "Un-mirrored" : "Flipped back"); }).catch(e => { toast(e.message); b.disabled = false; });
   }
+  else if (act === "togglelines") { ph.hideLines = !ph.hideLines; S.sel = null; renderSide(); draw(); scheduleSave(it); toast(ph.hideLines ? "Lines hidden on this photo, including saved photos" : "Lines shown again"); }
   else if (act === "resetlines") { for (const id of Object.keys(ph.lines)) { const m = it.measures.find(m => m.id === id); if (m) ph.lines[id] = defaultLine(it, m); } ph.linesMoved = false; S.sel = null; draw(); updateValues(); scheduleSave(it); toast("Lines put back in their starting places"); }
   else if (act === "rot-l" || act === "rot-r") {
     track("rotate");
