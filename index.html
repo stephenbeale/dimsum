@@ -154,6 +154,7 @@ label.check input{width:18px;height:18px}
 .offer{border-left:4px solid var(--tape);padding:8px 10px;background:var(--sunk);border-radius:6px;font-size:14px}
 #status{margin:0 0 12px}
 #f-title{width:100%}
+.condchips button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-style:solid;border-color:var(--ink)}
 .detailgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
 .detailgrid label{display:grid;gap:4px;font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .detailgrid input{width:100%;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);font-size:15px}
@@ -293,7 +294,7 @@ const TEMPLATES = {
 const HOW = {};
 for (const t of Object.values(TEMPLATES)) for (const m of t.measures) HOW[m.key] = HOW[m.key] || m.how;
 
-const APP_VERSION = "2026-11-15.13";
+const APP_VERSION = "2026-11-15.14";
 // ---------- usage counting (GoatCounter) ----------
 // Put your GoatCounter site code here (the part before .goatcounter.com) to switch counting on.
 // Only the name of an action is sent, e.g. "photos-downloaded-vinted": never photos, measurements, titles or descriptions.
@@ -543,7 +544,7 @@ function normalize(raw) {
 }
 function toDoc(it) {
   return {
-    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", addMeasures: it.addMeasures !== false, createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
+    name: it.name, type: it.type, unit: it.unit, notes: it.notes || "", description: it.description || "", descTitle: it.descTitle || "", condition: it.condition || [], descCond: it.descCond || "", guess: it.guess || null, fit: it.fit || "", size: it.size || "", brand: it.brand || "", sizeText: it.sizeText || "", material: it.material || "", addMeasures: it.addMeasures !== false, createdAt: it.createdAt, updatedAt: it.updatedAt || Date.now(),
     measures: it.measures.map(m => ({ id: m.id, key: m.key, label: m.label, actual: m.actual ?? null, touched: !!m.touched })),
     photos: it.photos.map(p => ({ id: p.id, role: p.role, photoId: p.photoId || null, w: p.w, h: p.h, lines: p.lines, ref: p.ref || null, redact: p.redact, faceChecked: !!p.faceChecked, fileName: p.fileName || "", linesMoved: !!p.linesMoved, hideLines: !!p.hideLines, detailsPos: p.detailsPos || null, detailsScale: p.detailsScale || null, crop: p.crop || null, fit: p.fit || null, mirrored: !!p.mirrored })),
   };
@@ -1207,6 +1208,8 @@ function renderSide() {
     <section class="panel">
       <h2>Listing text</h2>
       ${guessHTML(it)}
+      <span class="lbl">Condition</span>
+      <div class="chips condchips" role="group" aria-label="Condition">${CONDITIONS.map(c => `<button data-cond="${esc(c)}" aria-pressed="${(it.condition || []).includes(c)}">${esc(c)}</button>`).join("")}</div>
       <div class="detailgrid">
         <label>Brand<input type="text" id="f-brand" value="${esc(it.brand || "")}" placeholder="e.g. Barbour" autocomplete="off"></label>
         <label>Size on label<input type="text" id="f-sizetext" value="${esc(it.sizeText || "")}" placeholder="${esc(sizeOf(it) || (it.type === "shoes" ? "e.g. UK 9 / EU 43" : it.type === "hat" ? "e.g. 58 cm, 7⅛" : "e.g. XL, UK 40, 32R"))}" autocomplete="off"></label>
@@ -1217,7 +1220,7 @@ function renderSide() {
       <div class="row2"><button class="btn ghost" data-act="copytitle">${I("copy")}Copy title</button><span class="note" id="title-count">${(it.name === "Untitled garment" ? "" : it.name).length}/80 for eBay</span></div>
       <label class="lbl" for="f-desc">Description</label>
       <textarea id="f-desc" placeholder="What buyers read: brand, colour, fabric, condition…">${esc(it.description || "")}</textarea>
-      <label class="check"><input type="checkbox" id="f-addm" ${it.addMeasures === false ? "" : "checked"}> Fill in the title and measurements for me (kept up to date)</label>
+      <label class="check"><input type="checkbox" id="f-addm" ${it.addMeasures === false ? "" : "checked"}> Fill in the title, condition and measurements for me (kept up to date)</label>
 
       <div class="row2"><button class="btn ghost" data-act="copy">${I("copy")}Copy description</button></div>
       <label class="lbl" for="f-notes">Private notes</label>
@@ -1583,6 +1586,11 @@ function summaryText(it) { syncDescMeasures(it); return (it.description || "").t
 // The measurements live at the end of the description itself, and are rewritten whenever they change.
 const MEASURE_BLOCK = /\n*Measurements(?: \(laid flat\))?:\n?(?:• [^\n]*(?:\n|$))*/;
 const realTitle = it => (it.name && it.name.trim() && it.name !== "Untitled garment") ? it.name.trim() : "";
+const CONDITIONS = ["New with tags", "New without tags", "Unworn", "Hardly worn", "Some signs of wear", "Worn but plenty more life", "Needs repair"];
+function conditionText(it) {
+  const c = CONDITIONS.filter(x => (it.condition || []).includes(x));
+  return c.length ? "Condition: " + c.map((x, i) => i ? x.charAt(0).toLowerCase() + x.slice(1) : x).join(", ") : "";
+}
 function syncDescMeasures(it) {
   if (!it) return false;
   const before = it.description || "";
@@ -1594,6 +1602,14 @@ function syncDescMeasures(it) {
   } else if (!title && it.descTitle && first === it.descTitle) {
     lines.shift(); text = lines.join("\n").replace(/^\s+/, ""); it.descTitle = "";
   }
+  // A "Condition: …" line just under the title, kept in step with the chips unless it's been edited by hand.
+  const cond = it.addMeasures === false ? "" : conditionText(it);
+  let ls = text ? text.split("\n") : [];
+  const ci = it.descCond ? ls.findIndex(l => l.trim() === it.descCond) : -1;
+  if (ci >= 0) { if (cond) ls[ci] = cond; else ls.splice(ci, 1); }
+  else if (cond && !ls.some(l => /^condition:/i.test(l.trim()))) ls.splice(it.descTitle && ls.length && ls[0].trim() === it.descTitle ? 1 : 0, 0, cond);
+  it.descCond = cond;
+  text = ls.join("\n").replace(/\s+$/, "");
   const block = it.addMeasures === false ? "" : measureText(it);
   if (block) text = text ? text + "\n\n" + block : block;
   if (text === before) return false;
@@ -2157,6 +2173,12 @@ app.addEventListener("click", e => {
   if (b.dataset.sel) { S.sel = S.sel === b.dataset.sel ? null : b.dataset.sel; renderSide(); draw(); return; }
   if (b.dataset.size) { it.size = it.size === b.dataset.size ? "" : b.dataset.size; renderSide(); draw(); scheduleSave(it); return; }
   if (b.dataset.fit) { it.fit = it.fit === b.dataset.fit ? "" : b.dataset.fit; renderSide(); draw(); scheduleSave(it); return; }
+  if (b.dataset.cond) {
+    const c = b.dataset.cond, cur = new Set(it.condition || []);
+    cur.has(c) ? cur.delete(c) : cur.add(c);
+    it.condition = CONDITIONS.filter(x => cur.has(x));
+    track("condition-set", it.id); scheduleSave(it); renderSide(); return;
+  }
   if (b.dataset.tscale) { S.exp.textScale = +b.dataset.tscale; saveExp(); renderSide(); draw(); return; }
   if (b.dataset.fitMode) { ph.fit = b.dataset.fitMode === "auto" ? undefined : b.dataset.fitMode; if (fitLinesToCrop(it, ph)) updateValues(); scheduleSave(it); renderSide(); draw(); return; }
   if (b.dataset.shape) { S.exp.shape = b.dataset.shape; saveExp(); if (ph && fitLinesToCrop(it, ph)) scheduleSave(it); renderSide(); draw(); return; }
